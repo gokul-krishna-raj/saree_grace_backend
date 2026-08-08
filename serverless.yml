@@ -1,0 +1,100 @@
+service: saree-grace-backend
+
+frameworkVersion: '3'
+
+useDotenv: true
+
+provider:
+  name: aws
+  runtime: nodejs20.x
+  region: ${opt:region, 'ap-south-1'}
+  stage: ${opt:stage, 'dev'}
+  memorySize: 512
+  timeout: 25
+  logRetentionInDays: 30
+  # HTTPS is enforced automatically: API Gateway's default execute-api
+  # endpoint only ever serves HTTPS (plain HTTP requests are rejected at the
+  # edge) — see docs/deployment.md for the custom-domain + ACM cert setup
+  # used in staging/prod.
+  # Referenced directly from process.env / .env.<stage> (loaded by useDotenv)
+  # rather than indirected through `custom` — a Serverless Framework
+  # variable fallback (`, 'default'`) only fires on `undefined`, and an
+  # extra indirection layer turns "unset" into "empty string", which is
+  # defined and therefore defeats the fallback. Keep it a single hop.
+  environment:
+    NODE_ENV: ${env:NODE_ENV, 'production'}
+    API_BASE_PATH: ${env:API_BASE_PATH, '/api/v1'}
+    CORS_ORIGINS: ${env:CORS_ORIGINS, ''}
+    MONGODB_URI: ${env:MONGODB_URI, ''}
+    JWT_ACCESS_SECRET: ${env:JWT_ACCESS_SECRET, ''}
+    JWT_REFRESH_SECRET: ${env:JWT_REFRESH_SECRET, ''}
+    JWT_ACCESS_EXPIRES_IN: ${env:JWT_ACCESS_EXPIRES_IN, '15m'}
+    JWT_REFRESH_EXPIRES_IN: ${env:JWT_REFRESH_EXPIRES_IN, '30d'}
+    GOOGLE_CLIENT_ID: ${env:GOOGLE_CLIENT_ID, ''}
+    CLOUDINARY_CLOUD_NAME: ${env:CLOUDINARY_CLOUD_NAME, ''}
+    CLOUDINARY_API_KEY: ${env:CLOUDINARY_API_KEY, ''}
+    CLOUDINARY_API_SECRET: ${env:CLOUDINARY_API_SECRET, ''}
+    CLOUDINARY_UPLOAD_FOLDER: ${env:CLOUDINARY_UPLOAD_FOLDER, 'saree-grace'}
+    RAZORPAY_KEY_ID: ${env:RAZORPAY_KEY_ID, ''}
+    RAZORPAY_KEY_SECRET: ${env:RAZORPAY_KEY_SECRET, ''}
+    RAZORPAY_WEBHOOK_SECRET: ${env:RAZORPAY_WEBHOOK_SECRET, ''}
+    PASSWORD_RESET_TOKEN_EXPIRES_MIN: ${env:PASSWORD_RESET_TOKEN_EXPIRES_MIN, '30'}
+    RATE_LIMIT_WINDOW_MS: ${env:RATE_LIMIT_WINDOW_MS, '900000'}
+    RATE_LIMIT_MAX: ${env:RATE_LIMIT_MAX, '300'}
+    AUTH_RATE_LIMIT_WINDOW_MS: ${env:AUTH_RATE_LIMIT_WINDOW_MS, '900000'}
+    AUTH_RATE_LIMIT_MAX: ${env:AUTH_RATE_LIMIT_MAX, '10'}
+    PAYMENT_RATE_LIMIT_WINDOW_MS: ${env:PAYMENT_RATE_LIMIT_WINDOW_MS, '900000'}
+    PAYMENT_RATE_LIMIT_MAX: ${env:PAYMENT_RATE_LIMIT_MAX, '30'}
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+          Resource: 'arn:aws:logs:*:*:*'
+
+# Per-stage secrets are NEVER committed. They're pulled from AWS SSM
+# Parameter Store (SecureString) per stage, e.g.
+#   /saree-grace/${stage}/MONGODB_URI
+#   /saree-grace/${stage}/JWT_ACCESS_SECRET
+# For local `sls deploy`, populate a `.env.<stage>` (gitignored) instead —
+# useDotenv above loads `.env.${stage}` automatically when `--stage <stage>`
+# is passed, falling back to `.env`.
+custom:
+  serverless-offline:
+    httpPort: 4000
+    noPrependStageInUrl: true
+
+plugins:
+  - serverless-offline
+
+package:
+  individually: false
+  patterns:
+    - '!tests/**'
+    - '!scripts/**'
+    - '!coverage/**'
+    - '!*.md'
+    - '!.env*'
+
+functions:
+  api:
+    handler: dist/lambda.handler
+    events:
+      - http:
+          method: ANY
+          path: /
+          cors: false
+      - http:
+          method: ANY
+          path: /{proxy+}
+          cors: false
+
+resources:
+  Conditions:
+    IsProd:
+      Fn::Equals:
+        - ${self:provider.stage}
+        - prod

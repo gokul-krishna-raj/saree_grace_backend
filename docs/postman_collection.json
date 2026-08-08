@@ -1,0 +1,488 @@
+{
+  "info": {
+    "name": "Saree Grace Backend API",
+    "description": "API for the Saree Grace e-commerce backend. Set {{baseUrl}} to http://localhost:4000/api/v1 for local dev. Run Auth > Register or Login first to populate {{accessToken}} via the request's test script.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:4000/api/v1" },
+    { "key": "rootUrl", "value": "http://localhost:4000" },
+    { "key": "accessToken", "value": "" },
+    { "key": "refreshToken", "value": "" },
+    { "key": "adminAccessToken", "value": "" },
+    { "key": "categoryId", "value": "" },
+    { "key": "productId", "value": "" },
+    { "key": "productSlug", "value": "" },
+    { "key": "variantId", "value": "" },
+    { "key": "cartItemId", "value": "" },
+    { "key": "orderId", "value": "" },
+    { "key": "reviewId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        { "name": "Health check", "request": { "method": "GET", "url": "{{rootUrl}}/health" } }
+      ]
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Register",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body?.data?.accessToken) { pm.collectionVariables.set('accessToken', body.data.accessToken); pm.collectionVariables.set('refreshToken', body.data.refreshToken); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/auth/register",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Jane Doe\",\n  \"email\": \"jane@example.com\",\n  \"password\": \"SuperSecret123\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body?.data?.accessToken) { pm.collectionVariables.set('accessToken', body.data.accessToken); pm.collectionVariables.set('refreshToken', body.data.refreshToken); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"jane@example.com\",\n  \"password\": \"SuperSecret123\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Google SSO login",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/auth/google",
+            "body": { "mode": "raw", "raw": "{\n  \"idToken\": \"<google-id-token>\"\n}" }
+          }
+        },
+        {
+          "name": "Refresh token",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/auth/refresh",
+            "body": { "mode": "raw", "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}" }
+          }
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/auth/logout",
+            "body": { "mode": "raw", "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}" }
+          }
+        },
+        {
+          "name": "Forgot password",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/auth/forgot-password",
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"jane@example.com\"\n}" }
+          }
+        },
+        {
+          "name": "Reset password",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/auth/reset-password",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"<reset-token-from-email>\",\n  \"newPassword\": \"NewSecret123\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Get current user (me)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": "{{baseUrl}}/auth/me"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Categories",
+      "item": [
+        { "name": "List categories (flat)", "request": { "method": "GET", "url": "{{baseUrl}}/categories" } },
+        { "name": "List categories (tree)", "request": { "method": "GET", "url": "{{baseUrl}}/categories?tree=true" } },
+        {
+          "name": "[Admin] Create category",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{adminAccessToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/categories",
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Silk Sarees\"\n}" }
+          }
+        },
+        {
+          "name": "[Admin] Update category",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{adminAccessToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/categories/{{categoryId}}",
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Premium Silk Sarees\"\n}" }
+          }
+        },
+        {
+          "name": "[Admin] Delete category",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{adminAccessToken}}" }],
+            "url": "{{baseUrl}}/categories/{{categoryId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Products (public)",
+      "item": [
+        { "name": "List products", "request": { "method": "GET", "url": "{{baseUrl}}/products?limit=20" } },
+        {
+          "name": "List products (filtered)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/products?category={{categoryId}}&handloomOnly=true&inStockOnly=true&sort=price_asc"
+          }
+        },
+        { "name": "Search products", "request": { "method": "GET", "url": "{{baseUrl}}/products/search?q=silk" } },
+        { "name": "Get product by slug", "request": { "method": "GET", "url": "{{baseUrl}}/products/{{productSlug}}" } },
+        { "name": "Get product reviews", "request": { "method": "GET", "url": "{{baseUrl}}/products/{{productId}}/reviews" } }
+      ]
+    },
+    {
+      "name": "Products (admin)",
+      "item": [
+        {
+          "name": "Create simple product",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{adminAccessToken}}" }],
+            "url": "{{baseUrl}}/admin/products",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "type", "value": "simple" },
+                { "key": "name", "value": "Blue Cotton Saree" },
+                { "key": "description", "value": "A lovely blue cotton saree" },
+                { "key": "category", "value": "{{categoryId}}" },
+                { "key": "price", "value": "1499" },
+                { "key": "stock", "value": "10" },
+                { "key": "isHandloom", "value": "true" },
+                { "key": "images", "type": "file", "src": [] }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create variant shell product",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{adminAccessToken}}" }],
+            "url": "{{baseUrl}}/admin/products",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "type", "value": "variant" },
+                { "key": "name", "value": "Kanjivaram Silk Saree" },
+                { "key": "description", "value": "Traditional silk saree" },
+                { "key": "category", "value": "{{categoryId}}" },
+                { "key": "variantAttributeNames", "value": "color,borderWidth" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Update product",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Authorization", "value": "Bearer {{adminAccessToken}}" }],
+            "url": "{{baseUrl}}/admin/products/{{productId}}",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "price", "value": "1599" },
+                { "key": "removeImagePublicIds", "value": "" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Delete product",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{adminAccessToken}}" }],
+            "url": "{{baseUrl}}/admin/products/{{productId}}"
+          }
+        },
+        {
+          "name": "Add variant",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{adminAccessToken}}" }],
+            "url": "{{baseUrl}}/admin/products/{{productId}}/variants",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "sku", "value": "SG-VAR-RED-2IN" },
+                { "key": "attributes", "value": "{\"color\":\"red\",\"borderWidth\":\"2 inch\"}" },
+                { "key": "price", "value": "7999" },
+                { "key": "stock", "value": "8" },
+                { "key": "images", "type": "file", "src": [] }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Update variant",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Authorization", "value": "Bearer {{adminAccessToken}}" }],
+            "url": "{{baseUrl}}/admin/products/{{productId}}/variants/{{variantId}}",
+            "body": { "mode": "formdata", "formdata": [{ "key": "stock", "value": "12" }] }
+          }
+        },
+        {
+          "name": "Delete variant",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{adminAccessToken}}" }],
+            "url": "{{baseUrl}}/admin/products/{{productId}}/variants/{{variantId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Cart",
+      "item": [
+        {
+          "name": "Get cart",
+          "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }], "url": "{{baseUrl}}/cart" }
+        },
+        {
+          "name": "Add item to cart",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/cart",
+            "body": { "mode": "raw", "raw": "{\n  \"productId\": \"{{productId}}\",\n  \"qty\": 1\n}" }
+          }
+        },
+        {
+          "name": "Update cart item quantity",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/cart/{{cartItemId}}",
+            "body": { "mode": "raw", "raw": "{\n  \"qty\": 3\n}" }
+          }
+        },
+        {
+          "name": "Remove cart item",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": "{{baseUrl}}/cart/{{cartItemId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Wishlist",
+      "item": [
+        { "name": "Get wishlist", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }], "url": "{{baseUrl}}/wishlist" } },
+        { "name": "Add to wishlist", "request": { "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }], "url": "{{baseUrl}}/wishlist/{{productId}}" } },
+        { "name": "Remove from wishlist", "request": { "method": "DELETE", "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }], "url": "{{baseUrl}}/wishlist/{{productId}}" } }
+      ]
+    },
+    {
+      "name": "Orders",
+      "item": [
+        {
+          "name": "Create order (checkout)",
+          "event": [
+            {
+              "listen": "test",
+              "script": { "exec": ["const body = pm.response.json(); if (body?.data?.order?._id) pm.collectionVariables.set('orderId', body.data.order._id);"] }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"shippingAddress\": {\n    \"fullName\": \"Jane Doe\",\n    \"phone\": \"9876543210\",\n    \"line1\": \"123 Main St\",\n    \"city\": \"Chennai\",\n    \"state\": \"Tamil Nadu\",\n    \"postalCode\": \"600001\",\n    \"country\": \"India\"\n  }\n}"
+            }
+          }
+        },
+        { "name": "List my orders", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }], "url": "{{baseUrl}}/orders/my" } },
+        { "name": "Get order by id", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }], "url": "{{baseUrl}}/orders/{{orderId}}" } },
+        { "name": "Get order tracking", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }], "url": "{{baseUrl}}/orders/{{orderId}}/tracking" } },
+        { "name": "Cancel my order", "request": { "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }], "url": "{{baseUrl}}/orders/{{orderId}}/cancel" } }
+      ]
+    },
+    {
+      "name": "Orders (admin)",
+      "item": [
+        { "name": "List all orders", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{adminAccessToken}}" }], "url": "{{baseUrl}}/admin/orders" } },
+        { "name": "Get any order", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{adminAccessToken}}" }], "url": "{{baseUrl}}/admin/orders/{{orderId}}" } },
+        {
+          "name": "Update order status",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{adminAccessToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/admin/orders/{{orderId}}/status",
+            "body": { "mode": "raw", "raw": "{\n  \"status\": \"shipped\",\n  \"carrier\": \"BlueDart\",\n  \"trackingId\": \"BD123456789\"\n}" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Payments",
+      "item": [
+        {
+          "name": "Create Razorpay order",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/payments/create-order",
+            "body": { "mode": "raw", "raw": "{\n  \"orderId\": \"{{orderId}}\"\n}" }
+          }
+        },
+        {
+          "name": "Verify payment",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/payments/verify",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"razorpayOrderId\": \"order_xxx\",\n  \"razorpayPaymentId\": \"pay_xxx\",\n  \"razorpaySignature\": \"<hmac-sha256>\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Razorpay webhook (server-to-server)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-razorpay-signature", "value": "<computed-hmac>" },
+              { "key": "x-razorpay-event-id", "value": "evt_xxx" }
+            ],
+            "url": "{{baseUrl}}/payments/webhook",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event\": \"payment.captured\",\n  \"payload\": { \"payment\": { \"entity\": { \"id\": \"pay_xxx\", \"order_id\": \"order_xxx\", \"method\": \"upi\", \"amount\": 149900 } } }\n}"
+            }
+          }
+        },
+        {
+          "name": "[Admin] Refund order",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{adminAccessToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/payments/{{orderId}}/refund",
+            "body": { "mode": "raw", "raw": "{\n  \"reason\": \"Customer requested cancellation\"\n}" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Reviews",
+      "item": [
+        {
+          "name": "Create review",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": "{{baseUrl}}/reviews",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "productId", "value": "{{productId}}" },
+                { "key": "orderId", "value": "{{orderId}}" },
+                { "key": "rating", "value": "5" },
+                { "key": "comment", "value": "Beautiful saree, great quality!" },
+                { "key": "images", "type": "file", "src": [] }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Reviews (admin)",
+      "item": [
+        { "name": "List all reviews", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{adminAccessToken}}" }], "url": "{{baseUrl}}/admin/reviews?approved=false" } },
+        { "name": "Approve review", "request": { "method": "PATCH", "header": [{ "key": "Authorization", "value": "Bearer {{adminAccessToken}}" }], "url": "{{baseUrl}}/admin/reviews/{{reviewId}}/approve" } },
+        { "name": "Delete review", "request": { "method": "DELETE", "header": [{ "key": "Authorization", "value": "Bearer {{adminAccessToken}}" }], "url": "{{baseUrl}}/admin/reviews/{{reviewId}}" } }
+      ]
+    },
+    {
+      "name": "Admin dashboard",
+      "item": [
+        { "name": "Get dashboard summary", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{adminAccessToken}}" }], "url": "{{baseUrl}}/admin/dashboard" } }
+      ]
+    }
+  ]
+}
