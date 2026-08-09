@@ -39,6 +39,19 @@ provider:
     RAZORPAY_KEY_SECRET: ${env:RAZORPAY_KEY_SECRET, ''}
     RAZORPAY_WEBHOOK_SECRET: ${env:RAZORPAY_WEBHOOK_SECRET, ''}
     PASSWORD_RESET_TOKEN_EXPIRES_MIN: ${env:PASSWORD_RESET_TOKEN_EXPIRES_MIN, '30'}
+    OTP_EXPIRY_MINUTES: ${env:OTP_EXPIRY_MINUTES, '5'}
+    OTP_MAX_ATTEMPTS: ${env:OTP_MAX_ATTEMPTS, '5'}
+    OTP_RESEND_COOLDOWN_SECONDS: ${env:OTP_RESEND_COOLDOWN_SECONDS, '60'}
+    EMAIL_HOST: ${env:EMAIL_HOST, ''}
+    EMAIL_PORT: ${env:EMAIL_PORT, '587'}
+    EMAIL_SECURE: ${env:EMAIL_SECURE, 'false'}
+    EMAIL_USER: ${env:EMAIL_USER, ''}
+    EMAIL_PASSWORD: ${env:EMAIL_PASSWORD, ''}
+    EMAIL_FROM_NAME: ${env:EMAIL_FROM_NAME, 'Saree Grace'}
+    EMAIL_FROM_ADDRESS: ${env:EMAIL_FROM_ADDRESS, ''}
+    APP_URL: ${env:APP_URL, ''}
+    SUPPORT_EMAIL: ${env:SUPPORT_EMAIL, ''}
+    ABANDONED_CART_DELAY_HOURS: ${env:ABANDONED_CART_DELAY_HOURS, '24'}
     RATE_LIMIT_WINDOW_MS: ${env:RATE_LIMIT_WINDOW_MS, '900000'}
     RATE_LIMIT_MAX: ${env:RATE_LIMIT_MAX, '300'}
     AUTH_RATE_LIMIT_WINDOW_MS: ${env:AUTH_RATE_LIMIT_WINDOW_MS, '900000'}
@@ -91,6 +104,13 @@ functions:
           method: ANY
           path: /{proxy+}
           cors: false
+  abandonedCartJob:
+    handler: dist/jobs/abandonedCartHandler.handler
+    timeout: 60
+    events:
+      # Hourly, so a cart never waits much past ABANDONED_CART_DELAY_HOURS
+      # before its one reminder goes out.
+      - schedule: rate(1 hour)
 
 resources:
   Conditions:

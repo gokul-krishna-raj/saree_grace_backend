@@ -32,9 +32,23 @@ export const resetPasswordSchema = z.object({
   newPassword: z.string().min(8).max(128),
 });
 
+export const verifyOtpSchema = z.object({
+  email: z.string().trim().toLowerCase().email(),
+  otp: z
+    .string()
+    .trim()
+    .regex(/^\d{6}$/, 'OTP must be a 6-digit code'),
+});
+
+export const resendOtpSchema = z.object({
+  email: z.string().trim().toLowerCase().email(),
+});
+
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 export type GoogleLoginInput = z.infer<typeof googleLoginSchema>;
 export type RefreshInput = z.infer<typeof refreshSchema>;
 export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
 export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
+export type VerifyOtpInput = z.infer<typeof verifyOtpSchema>;
+export type ResendOtpInput = z.infer<typeof resendOtpSchema>;

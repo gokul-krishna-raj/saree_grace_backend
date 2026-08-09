@@ -11,12 +11,43 @@ const coercedBool = z
 // defaults to 'unknown' rather than assuming handloom.
 const loomType = z.enum(['handloom', 'powerloom', 'unknown']);
 
+// Multipart fields arrive as a string — either a JSON-encoded array (e.g.
+// '["<id>","<id>"]', the common case when a form client JSON.stringifies an
+// array field before appending it to FormData) or a comma-separated list.
+function parseListField(value: string): string[] {
+  const trimmed = value.trim();
+  if (!trimmed) return [];
+  if (trimmed.startsWith('[')) {
+    try {
+      const parsed: unknown = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        return parsed.map((v) => String(v).trim()).filter(Boolean);
+      }
+    } catch {
+      // Not valid JSON — fall through to comma-separated parsing.
+    }
+  }
+  return trimmed
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+const occasionsField = z
+  .union([z.array(z.string()), z.string()])
+  .transform((v) => (Array.isArray(v) ? v : parseListField(v)))
+  .refine((arr) => arr.every((id) => Types.ObjectId.isValid(id)), {
+    message: 'occasions must contain valid ids',
+  })
+  .optional();
+
 // Multipart form fields arrive as strings — coerce numbers/booleans/arrays.
 export const createSimpleProductSchema = z.object({
   type: z.literal('simple'),
   name: z.string().trim().min(2).max(200),
   description: z.string().trim().min(1).max(5000),
   category: objectId,
+  occasions: occasionsField,
   fabric: z.string().trim().max(100).optional(),
   color: z.string().trim().max(100).optional(),
   loomType: loomType.optional().default('unknown'),
@@ -31,19 +62,13 @@ export const createVariantShellProductSchema = z.object({
   name: z.string().trim().min(2).max(200),
   description: z.string().trim().min(1).max(5000),
   category: objectId,
+  occasions: occasionsField,
   fabric: z.string().trim().max(100).optional(),
   color: z.string().trim().max(100).optional(),
   loomType: loomType.optional().default('unknown'),
   variantAttributeNames: z
     .union([z.array(z.string()), z.string()])
-    .transform((v) =>
-      Array.isArray(v)
-        ? v
-        : v
-            .split(',')
-            .map((s) => s.trim())
-            .filter(Boolean),
-    )
+    .transform((v) => (Array.isArray(v) ? v : parseListField(v)))
     .refine((arr) => arr.length > 0, 'At least one variant attribute name is required'),
 });
 
@@ -56,6 +81,7 @@ export const updateProductSchema = z.object({
   name: z.string().trim().min(2).max(200).optional(),
   description: z.string().trim().min(1).max(5000).optional(),
   category: objectId.optional(),
+  occasions: occasionsField,
   fabric: z.string().trim().max(100).optional(),
   color: z.string().trim().max(100).optional(),
   loomType: loomType.optional(),
@@ -103,7 +129,10 @@ export const slugParamSchema = z.object({ slug: z.string().min(1) });
 export const listProductsQuerySchema = z.object({
   cursor: z.string().optional(),
   limit: z.coerce.number().int().positive().optional(),
-  category: objectId.optional(),
+  // Accepts either the ObjectId or the slug — browse links use the
+  // SEO-friendly slug, admin/internal callers may already have the id.
+  category: z.string().trim().min(1).optional(),
+  occasion: z.string().trim().min(1).optional(),
   fabric: z.string().optional(),
   color: z.string().optional(),
   minPrice: z.coerce.number().nonnegative().optional(),
@@ -119,6 +148,10 @@ export const listProductsQuerySchema = z.object({
 export const searchProductsQuerySchema = z.object({
   q: z.string().trim().min(1),
   cursor: z.string().optional(),
+  limit: z.coerce.number().int().positive().optional(),
+});
+
+export const listBestSellersQuerySchema = z.object({
   limit: z.coerce.number().int().positive().optional(),
 });
 

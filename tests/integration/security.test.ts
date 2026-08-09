@@ -1,4 +1,5 @@
 import { request, buildApp, createUser, authHeader } from '../helpers';
+import * as mailer from '../../src/utils/mailer';
 
 describe('Security', () => {
   const app = buildApp();
@@ -29,7 +30,8 @@ describe('Security', () => {
     },
   );
 
-  it('never returns the password hash on register, login, or me', async () => {
+  it('never returns the password hash on register, verify-otp, login, or me', async () => {
+    const sendEmailSpy = jest.spyOn(mailer, 'sendEmail').mockResolvedValue(undefined);
     const registerRes = await request(app).post('/api/v1/auth/register').send({
       name: 'Secure User',
       email: 'secure@example.com',
@@ -38,6 +40,14 @@ describe('Security', () => {
     expect(registerRes.body.data.user.passwordHash).toBeUndefined();
     expect(JSON.stringify(registerRes.body)).not.toContain('passwordHash');
 
+    const otp = /(\d{6})/.exec((sendEmailSpy.mock.calls.at(-1)?.[2] as string) ?? '')?.[1];
+    sendEmailSpy.mockRestore();
+
+    const verifyRes = await request(app)
+      .post('/api/v1/auth/verify-otp')
+      .send({ email: 'secure@example.com', otp });
+    expect(JSON.stringify(verifyRes.body)).not.toContain('passwordHash');
+
     const loginRes = await request(app)
       .post('/api/v1/auth/login')
       .send({ email: 'secure@example.com', password: 'SecurePass123' });
@@ -45,7 +55,7 @@ describe('Security', () => {
 
     const meRes = await request(app)
       .get('/api/v1/auth/me')
-      .set('Authorization', `Bearer ${registerRes.body.data.accessToken}`);
+      .set('Authorization', `Bearer ${verifyRes.body.data.accessToken}`);
     expect(JSON.stringify(meRes.body)).not.toContain('passwordHash');
   });
 

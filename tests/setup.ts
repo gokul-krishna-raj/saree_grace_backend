@@ -16,6 +16,8 @@ process.env.CLOUDINARY_API_KEY = process.env.CLOUDINARY_API_KEY ?? 'test-key';
 process.env.CLOUDINARY_API_SECRET = process.env.CLOUDINARY_API_SECRET ?? 'test-secret';
 process.env.GOOGLE_CLIENT_ID =
   process.env.GOOGLE_CLIENT_ID ?? 'test-client-id.apps.googleusercontent.com';
+process.env.APP_URL = process.env.APP_URL ?? 'https://test.sareegrace.com';
+process.env.SUPPORT_EMAIL = process.env.SUPPORT_EMAIL ?? 'support@test.sareegrace.com';
 // Rate limiters are created once at module-load time and share state across
 // every `createApp()` call in a test file (they're not per-app instances) —
 // use generous limits under test so unrelated tests don't 429 each other.

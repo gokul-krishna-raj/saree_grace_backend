@@ -20,13 +20,15 @@
     "test:watch": "jest --watch --runInBand",
     "test:coverage": "jest --coverage --runInBand",
     "seed": "ts-node --transpile-only scripts/seed.ts",
+    "job:abandoned-cart": "ts-node --transpile-only scripts/runAbandonedCartJob.ts",
     "loadtest": "ts-node --transpile-only scripts/loadtest.ts",
     "loadtest:products": "npx --yes autocannon -c 20 -d 15 http://localhost:4000/api/v1/products",
     "loadtest:orders": "npx --yes autocannon -c 10 -d 15 -H \"Authorization: Bearer $TOKEN\" http://localhost:4000/api/v1/orders/my",
     "offline": "serverless offline start",
     "deploy": "serverless deploy",
     "deploy:prod": "serverless deploy --stage prod",
-    "prepare": "husky"
+    "prepare": "husky",
+    "seed:categories": "ts-node src/seed/category.seed.ts"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
@@ -42,6 +44,7 @@
     "mongoose": "^8.9.0",
     "morgan": "^1.10.0",
     "multer": "^1.4.5-lts.1",
+    "nodemailer": "^9.0.5",
     "razorpay": "^2.9.5",
     "serverless-http": "^3.2.0",
     "uuid": "^11.0.3",
@@ -59,6 +62,7 @@
     "@types/morgan": "^1.9.9",
     "@types/multer": "^1.4.12",
     "@types/node": "^20.17.10",
+    "@types/nodemailer": "^8.0.1",
     "@types/supertest": "^6.0.2",
     "@types/uuid": "^10.0.0",
     "eslint": "^9.17.0",

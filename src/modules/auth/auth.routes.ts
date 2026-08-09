@@ -11,6 +11,8 @@ import {
   logoutSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
+  verifyOtpSchema,
+  resendOtpSchema,
 } from './auth.validation';
 
 const router = Router();
@@ -18,6 +20,8 @@ const router = Router();
 router.use(authRateLimiter);
 
 router.post('/register', validate({ body: registerSchema }), authController.register);
+router.post('/verify-otp', validate({ body: verifyOtpSchema }), authController.verifyOtp);
+router.post('/resend-otp', validate({ body: resendOtpSchema }), authController.resendOtp);
 router.post('/login', validate({ body: loginSchema }), authController.login);
 router.post('/google', validate({ body: googleLoginSchema }), authController.googleLogin);
 router.post('/refresh', validate({ body: refreshSchema }), authController.refresh);

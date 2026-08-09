@@ -4,6 +4,7 @@ import { OAuth2Client } from 'google-auth-library';
 import { User, UserDocument, UserRole } from '../../models/User';
 import { RefreshToken } from '../../models/RefreshToken';
 import { PasswordResetToken } from '../../models/PasswordResetToken';
+import { Otp, OtpPurpose } from '../../models/Otp';
 import { ApiError } from '../../utils/ApiError';
 import {
   signAccessToken,
@@ -11,9 +12,11 @@ import {
   verifyRefreshToken,
   hashToken,
   generateRandomToken,
+  generateOtp,
 } from '../../utils/tokens';
 import { env } from '../../config/env';
-import { sendEmail, buildPasswordResetEmailBody } from '../../utils/mailer';
+import { sendEmail } from '../../utils/mailer';
+import { otpEmailTemplate, passwordResetEmailTemplate } from '../../utils/emailTemplates';
 import { logger } from '../../utils/logger';
 
 const BCRYPT_SALT_ROUNDS = 12;
@@ -44,11 +47,35 @@ async function issueTokenPair(userId: string, role: UserRole): Promise<AuthToken
   return { accessToken, refreshToken };
 }
 
+async function generateAndSendOtp(email: string, purpose: OtpPurpose): Promise<void> {
+  // Invalidate any OTP already outstanding for this email/purpose before
+  // issuing a new one, so only the latest code is ever valid.
+  await Otp.deleteMany({ email, purpose });
+
+  const otp = generateOtp();
+  await Otp.create({
+    email,
+    otpHash: hashToken(otp),
+    purpose,
+    expiresAt: new Date(Date.now() + env.OTP_EXPIRY_MINUTES * 60 * 1000),
+  });
+
+  const { subject, html } = otpEmailTemplate(otp, env.OTP_EXPIRY_MINUTES);
+  try {
+    await sendEmail(email, subject, html);
+  } catch (err) {
+    // The OTP is already persisted — a transient mail-provider failure must
+    // not surface as a 500 on register/resend-otp. The customer can request
+    // another send via resend-otp once the provider recovers.
+    logger.error('Failed to send OTP email', { email, purpose, error: (err as Error).message });
+  }
+}
+
 export async function registerUser(input: {
   name: string;
   email: string;
   password: string;
-}): Promise<{ user: UserDocument; tokens: AuthTokens }> {
+}): Promise<{ user: UserDocument }> {
   const existing = await User.findOne({ email: input.email });
   if (existing) {
     throw ApiError.conflict('An account with this email already exists');
@@ -62,8 +89,64 @@ export async function registerUser(input: {
     role: 'customer',
   });
 
+  await generateAndSendOtp(user.email, 'signup');
+  return { user };
+}
+
+export async function verifyOtp(
+  email: string,
+  otp: string,
+): Promise<{ user: UserDocument; tokens: AuthTokens }> {
+  const invalidError = (): ApiError => ApiError.badRequest('Invalid or expired OTP');
+
+  const user = await User.findOne({ email });
+  const record = await Otp.findOne({ email, purpose: 'signup' }).sort({ createdAt: -1 });
+
+  // Same generic error whether the account doesn't exist, is already
+  // verified, or simply has no OTP on file — never leak which case it is.
+  if (!user || user.isVerified || !record) {
+    throw invalidError();
+  }
+
+  if (record.attempts >= env.OTP_MAX_ATTEMPTS) {
+    throw ApiError.tooManyRequests('Too many incorrect attempts. Please request a new OTP.');
+  }
+
+  if (record.expiresAt.getTime() < Date.now()) {
+    throw ApiError.badRequest('OTP has expired. Please request a new one.');
+  }
+
+  if (record.otpHash !== hashToken(otp)) {
+    record.attempts += 1;
+    await record.save();
+    throw invalidError();
+  }
+
+  user.isVerified = true;
+  await user.save();
+  await Otp.deleteOne({ _id: record._id });
+
   const tokens = await issueTokenPair(user._id.toString(), user.role);
   return { user, tokens };
+}
+
+export async function resendOtp(email: string): Promise<void> {
+  const user = await User.findOne({ email });
+  // Always resolve successfully regardless of whether the account exists
+  // or is already verified, to avoid leaking which emails are registered.
+  if (!user || user.isVerified) {
+    return;
+  }
+
+  const lastOtp = await Otp.findOne({ email, purpose: 'signup' }).sort({ createdAt: -1 });
+  if (
+    lastOtp &&
+    Date.now() - lastOtp.createdAt.getTime() < env.OTP_RESEND_COOLDOWN_SECONDS * 1000
+  ) {
+    throw ApiError.tooManyRequests('Please wait before requesting another OTP.');
+  }
+
+  await generateAndSendOtp(user.email, 'signup');
 }
 
 export async function loginUser(input: {
@@ -76,6 +159,11 @@ export async function loginUser(input: {
   }
   if (!user.isActive) {
     throw ApiError.forbidden('This account has been deactivated');
+  }
+  if (!user.isVerified) {
+    throw new ApiError(403, 'Please verify your email before logging in', {
+      code: 'EMAIL_NOT_VERIFIED',
+    });
   }
 
   const passwordMatches = await bcrypt.compare(input.password, user.passwordHash);
@@ -109,6 +197,7 @@ export async function loginWithGoogle(
     user = await User.findOne({ email: payload.email.toLowerCase() });
     if (user) {
       user.googleId = payload.sub;
+      user.isVerified = true;
       await user.save();
     } else {
       user = await User.create({
@@ -117,6 +206,8 @@ export async function loginWithGoogle(
         googleId: payload.sub,
         passwordHash: null,
         role: 'customer',
+        // Google has already verified ownership of this email address.
+        isVerified: true,
       });
     }
   }
@@ -208,11 +299,19 @@ export async function requestPasswordReset(email: string): Promise<void> {
   });
 
   const resetUrl = `${env.corsOriginList[0] ?? ''}/reset-password?token=${rawToken}`;
-  await sendEmail(
-    user.email,
-    'Reset your Saree Grace password',
-    buildPasswordResetEmailBody(resetUrl),
-  );
+  const { subject, html } = passwordResetEmailTemplate(resetUrl);
+  try {
+    await sendEmail(user.email, subject, html);
+  } catch (err) {
+    // The reset token is already persisted — a transient mail-provider
+    // failure must not surface as a 500 on forgot-password (this endpoint
+    // always reports success regardless of account state, for the same
+    // anti-enumeration reason).
+    logger.error('Failed to send password reset email', {
+      email: user.email,
+      error: (err as Error).message,
+    });
+  }
 }
 
 export async function resetPassword(token: string, newPassword: string): Promise<void> {

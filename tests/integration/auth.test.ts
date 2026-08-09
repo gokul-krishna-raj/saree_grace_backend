@@ -2,15 +2,35 @@ import { request, buildApp } from '../helpers';
 import jwt from 'jsonwebtoken';
 import { OAuth2Client } from 'google-auth-library';
 import { User } from '../../src/models/User';
+import { Otp } from '../../src/models/Otp';
 import * as mailer from '../../src/utils/mailer';
 
 jest.mock('google-auth-library');
+
+/**
+ * Registers a user, captures the OTP off the stubbed email send, and
+ * returns it — used by tests that need a verified account or the raw code.
+ */
+async function registerAndCaptureOtp(
+  app: ReturnType<typeof buildApp>,
+  payload: { name: string; email: string; password: string },
+): Promise<string> {
+  const sendEmailSpy = jest.spyOn(mailer, 'sendEmail').mockResolvedValue(undefined);
+  await request(app).post('/api/v1/auth/register').send(payload);
+  const emailBody = sendEmailSpy.mock.calls.at(-1)?.[2] as string;
+  sendEmailSpy.mockRestore();
+  const otp = /(\d{6})/.exec(emailBody ?? '')?.[1];
+  if (!otp) {
+    throw new Error('OTP not found in stubbed email body');
+  }
+  return otp;
+}
 
 describe('Auth', () => {
   const app = buildApp();
 
   describe('POST /api/v1/auth/register', () => {
-    it('registers a new user and returns tokens', async () => {
+    it('registers a new user as unverified and does not return tokens', async () => {
       const res = await request(app).post('/api/v1/auth/register').send({
         name: 'Jane Doe',
         email: 'jane@example.com',
@@ -20,8 +40,9 @@ describe('Auth', () => {
       expect(res.status).toBe(201);
       expect(res.body.success).toBe(true);
       expect(res.body.data.user.email).toBe('jane@example.com');
-      expect(res.body.data.accessToken).toEqual(expect.any(String));
-      expect(res.body.data.refreshToken).toEqual(expect.any(String));
+      expect(res.body.data.user.isVerified).toBe(false);
+      expect(res.body.data.accessToken).toBeUndefined();
+      expect(res.body.data.refreshToken).toBeUndefined();
       expect(res.body.data.user.passwordHash).toBeUndefined();
     });
 
@@ -40,6 +61,24 @@ describe('Auth', () => {
 
       expect(res.status).toBe(409);
       expect(res.body.success).toBe(false);
+    });
+
+    it('still registers the user even when the mail provider throws', async () => {
+      const sendEmailSpy = jest
+        .spyOn(mailer, 'sendEmail')
+        .mockRejectedValue(new Error('SMTP wrong version number'));
+
+      const res = await request(app).post('/api/v1/auth/register').send({
+        name: 'Resilient User',
+        email: 'resilient@example.com',
+        password: 'SuperSecret123',
+      });
+
+      expect(res.status).toBe(201);
+      expect(res.body.data.user.email).toBe('resilient@example.com');
+      const otpRecord = await Otp.findOne({ email: 'resilient@example.com' });
+      expect(otpRecord).not.toBeNull(); // OTP still persisted despite the failed send
+      sendEmailSpy.mockRestore();
     });
 
     it('rejects a weak/invalid payload', async () => {
@@ -63,11 +102,12 @@ describe('Auth', () => {
 
   describe('POST /api/v1/auth/login', () => {
     beforeEach(async () => {
-      await request(app).post('/api/v1/auth/register').send({
+      const otp = await registerAndCaptureOtp(app, {
         name: 'Login User',
         email: 'login@example.com',
         password: 'CorrectHorse123',
       });
+      await request(app).post('/api/v1/auth/verify-otp').send({ email: 'login@example.com', otp });
     });
 
     it('logs in with correct credentials', async () => {
@@ -90,6 +130,18 @@ describe('Auth', () => {
         .post('/api/v1/auth/login')
         .send({ email: 'nobody@example.com', password: 'whatever123' });
       expect(res.status).toBe(401);
+    });
+
+    it('rejects login for an unverified account with 403', async () => {
+      await request(app).post('/api/v1/auth/register').send({
+        name: 'Unverified User',
+        email: 'unverified@example.com',
+        password: 'SomePassword123',
+      });
+      const res = await request(app)
+        .post('/api/v1/auth/login')
+        .send({ email: 'unverified@example.com', password: 'SomePassword123' });
+      expect(res.status).toBe(403);
     });
   });
 
@@ -153,12 +205,15 @@ describe('Auth', () => {
 
   describe('refresh + logout', () => {
     it('rotates refresh tokens and rejects reuse of the old one', async () => {
-      const registerRes = await request(app).post('/api/v1/auth/register').send({
+      const otp = await registerAndCaptureOtp(app, {
         name: 'Refresh User',
         email: 'refresh@example.com',
         password: 'RefreshPass123',
       });
-      const { refreshToken } = registerRes.body.data;
+      const verifyRes = await request(app)
+        .post('/api/v1/auth/verify-otp')
+        .send({ email: 'refresh@example.com', otp });
+      const { refreshToken } = verifyRes.body.data;
 
       const refreshRes = await request(app).post('/api/v1/auth/refresh').send({ refreshToken });
       expect(refreshRes.status).toBe(200);
@@ -169,12 +224,15 @@ describe('Auth', () => {
     });
 
     it('logout invalidates the refresh token', async () => {
-      const registerRes = await request(app).post('/api/v1/auth/register').send({
+      const otp = await registerAndCaptureOtp(app, {
         name: 'Logout User',
         email: 'logout@example.com',
         password: 'LogoutPass123',
       });
-      const { refreshToken } = registerRes.body.data;
+      const verifyRes = await request(app)
+        .post('/api/v1/auth/verify-otp')
+        .send({ email: 'logout@example.com', otp });
+      const { refreshToken } = verifyRes.body.data;
 
       const logoutRes = await request(app).post('/api/v1/auth/logout').send({ refreshToken });
       expect(logoutRes.status).toBe(200);
@@ -186,12 +244,15 @@ describe('Auth', () => {
 
   describe('password reset', () => {
     it('completes the forgot-password -> reset-password flow and invalidates old sessions', async () => {
-      const registerRes = await request(app).post('/api/v1/auth/register').send({
+      const otp = await registerAndCaptureOtp(app, {
         name: 'Reset User',
         email: 'reset@example.com',
         password: 'OldPassword123',
       });
-      const { refreshToken: oldRefreshToken } = registerRes.body.data;
+      const verifyRes = await request(app)
+        .post('/api/v1/auth/verify-otp')
+        .send({ email: 'reset@example.com', otp });
+      const { refreshToken: oldRefreshToken } = verifyRes.body.data;
 
       const sendEmailSpy = jest.spyOn(mailer, 'sendEmail').mockResolvedValue(undefined);
 
@@ -243,11 +304,147 @@ describe('Auth', () => {
       sendEmailSpy.mockRestore();
     });
 
+    it('still reports success when the mail provider throws (transient SMTP failure)', async () => {
+      const otp = await registerAndCaptureOtp(app, {
+        name: 'Flaky Mail User',
+        email: 'flakymail@example.com',
+        password: 'FlakyMailPass123',
+      });
+      await request(app)
+        .post('/api/v1/auth/verify-otp')
+        .send({ email: 'flakymail@example.com', otp });
+
+      const sendEmailSpy = jest
+        .spyOn(mailer, 'sendEmail')
+        .mockRejectedValue(new Error('SMTP wrong version number'));
+
+      const res = await request(app)
+        .post('/api/v1/auth/forgot-password')
+        .send({ email: 'flakymail@example.com' });
+
+      expect(res.status).toBe(200);
+      sendEmailSpy.mockRestore();
+    });
+
     it('rejects an invalid or already-used reset token', async () => {
       const res = await request(app)
         .post('/api/v1/auth/reset-password')
         .send({ token: 'not-a-real-token', newPassword: 'Whatever123' });
       expect(res.status).toBe(400);
+    });
+  });
+
+  describe('POST /api/v1/auth/verify-otp', () => {
+    it('verifies the account and issues tokens on a correct OTP', async () => {
+      const otp = await registerAndCaptureOtp(app, {
+        name: 'Verify User',
+        email: 'verify@example.com',
+        password: 'VerifyPass123',
+      });
+
+      const res = await request(app)
+        .post('/api/v1/auth/verify-otp')
+        .send({ email: 'verify@example.com', otp });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.user.isVerified).toBe(true);
+      expect(res.body.data.accessToken).toEqual(expect.any(String));
+      expect(res.body.data.refreshToken).toEqual(expect.any(String));
+    });
+
+    it('rejects an incorrect OTP and increments attempts without leaking why', async () => {
+      await registerAndCaptureOtp(app, {
+        name: 'Wrong OTP User',
+        email: 'wrongotp@example.com',
+        password: 'WrongOtpPass123',
+      });
+
+      const res = await request(app)
+        .post('/api/v1/auth/verify-otp')
+        .send({ email: 'wrongotp@example.com', otp: '000000' });
+
+      expect(res.status).toBe(400);
+      expect(res.body.success).toBe(false);
+    });
+
+    it('locks out after the max number of incorrect attempts', async () => {
+      await registerAndCaptureOtp(app, {
+        name: 'Lockout User',
+        email: 'lockout@example.com',
+        password: 'LockoutPass123',
+      });
+
+      for (let i = 0; i < 5; i += 1) {
+        await request(app)
+          .post('/api/v1/auth/verify-otp')
+          .send({ email: 'lockout@example.com', otp: '000000' });
+      }
+
+      const res = await request(app)
+        .post('/api/v1/auth/verify-otp')
+        .send({ email: 'lockout@example.com', otp: '000000' });
+      expect(res.status).toBe(429);
+    });
+
+    it('does not leak whether an email is registered', async () => {
+      const res = await request(app)
+        .post('/api/v1/auth/verify-otp')
+        .send({ email: 'never-registered@example.com', otp: '123456' });
+      expect(res.status).toBe(400);
+    });
+  });
+
+  describe('POST /api/v1/auth/resend-otp', () => {
+    it('sends a new OTP that supersedes the old one', async () => {
+      await registerAndCaptureOtp(app, {
+        name: 'Resend User',
+        email: 'resend@example.com',
+        password: 'ResendPass123',
+      });
+      // Backdate the OTP so the resend isn't blocked by the cooldown window
+      // this test isn't exercising.
+      // Mongoose's timestamps plugin strips `createdAt` from Model-level
+      // update queries (to protect immutability), so go through the raw
+      // driver collection to backdate it for this cooldown-bypass test.
+      await Otp.collection.updateMany(
+        { email: 'resend@example.com' },
+        { $set: { createdAt: new Date(Date.now() - 61_000) } },
+      );
+
+      const sendEmailSpy = jest.spyOn(mailer, 'sendEmail').mockResolvedValue(undefined);
+      const resendRes = await request(app)
+        .post('/api/v1/auth/resend-otp')
+        .send({ email: 'resend@example.com' });
+      expect(resendRes.status).toBe(200);
+      const newOtp = /(\d{6})/.exec(
+        (sendEmailSpy.mock.calls.at(-1)?.[2] as string) ?? '',
+      )?.[1] as string;
+      sendEmailSpy.mockRestore();
+
+      const verifyRes = await request(app)
+        .post('/api/v1/auth/verify-otp')
+        .send({ email: 'resend@example.com', otp: newOtp });
+      expect(verifyRes.status).toBe(200);
+    });
+
+    it('enforces a cooldown between resends', async () => {
+      await registerAndCaptureOtp(app, {
+        name: 'Cooldown User',
+        email: 'cooldown@example.com',
+        password: 'CooldownPass123',
+      });
+
+      const res = await request(app)
+        .post('/api/v1/auth/resend-otp')
+        .send({ email: 'cooldown@example.com' });
+      expect(res.status).toBe(429);
+    });
+
+    it('does not leak whether an email is registered', async () => {
+      const res = await request(app)
+        .post('/api/v1/auth/resend-otp')
+        .send({ email: 'never-registered@example.com' });
+      expect(res.status).toBe(200);
     });
   });
 });

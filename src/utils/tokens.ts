@@ -52,3 +52,7 @@ export function hashToken(token: string): string {
 export function generateRandomToken(bytes = 32): string {
   return crypto.randomBytes(bytes).toString('hex');
 }
+
+export function generateOtp(): string {
+  return crypto.randomInt(0, 1_000_000).toString().padStart(6, '0');
+}

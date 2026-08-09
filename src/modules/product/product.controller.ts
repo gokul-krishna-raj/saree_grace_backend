@@ -95,3 +95,9 @@ export const searchProducts = asyncHandler(async (req: Request, res: Response) =
   const result = await productService.searchProducts(q, cursor, limit);
   sendSuccess(res, { products: result.products }, 200, { nextCursor: result.nextCursor });
 });
+
+export const listBestSellers = asyncHandler(async (req: Request, res: Response) => {
+  const { limit } = req.query as { limit?: string };
+  const products = await productService.listBestSellers(limit);
+  sendSuccess(res, { products });
+});

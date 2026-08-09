@@ -25,6 +25,8 @@ export interface UserDocument extends Document {
   role: UserRole;
   addresses: Address[];
   isActive: boolean;
+  isVerified: boolean;
+  marketingOptOut: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -62,6 +64,13 @@ const userSchema = new Schema<UserDocument>(
     role: { type: String, enum: ['customer', 'admin'], default: 'customer', index: true },
     addresses: { type: [addressSchema], default: [] },
     isActive: { type: Boolean, default: true },
+    // Email ownership is unverified until the signup OTP is confirmed
+    // (or the account was created via Google SSO, which already verifies it).
+    isVerified: { type: Boolean, default: false },
+    // Opt-out for non-transactional email (currently: abandoned-cart
+    // reminders). Order/payment/shipping emails are transactional and are
+    // never gated on this flag.
+    marketingOptOut: { type: Boolean, default: false },
   },
   { timestamps: true },
 );

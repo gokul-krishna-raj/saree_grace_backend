@@ -10,6 +10,8 @@ import {
   getOrderByIdForAdmin,
   transitionOrderStatus,
 } from '../order/order.service';
+import { User } from '../../models/User';
+import { sendRefundCompletedEmail, sendRefundInitiatedEmail } from '../email/email.service';
 
 export interface CreatePaymentOrderResult {
   razorpayOrderId: string;
@@ -139,7 +141,52 @@ interface RazorpayWebhookBody {
         error_description?: string;
       };
     };
+    refund?: {
+      entity: {
+        id: string;
+      };
+    };
   };
+}
+
+async function notifyRefundEmail(
+  order: OrderDocument,
+  emailType: 'initiated' | 'completed',
+): Promise<void> {
+  try {
+    const user = await User.findById(order.user).select('name email').lean();
+    if (!user || !order.payment.refund) return;
+
+    const base = {
+      recipientEmail: user.email,
+      userId: order.user.toString(),
+      orderId: order._id.toString(),
+      customerName: user.name,
+      orderNumber: order.orderNumber,
+      refundAmount: order.payment.refund.amount,
+      refundReferenceId: order.payment.refund.razorpayRefundId,
+    };
+
+    if (emailType === 'initiated') {
+      await sendRefundInitiatedEmail({
+        ...base,
+        refundReason: order.payment.refund.reason,
+        refundStatus: order.payment.refund.status,
+      });
+    } else {
+      await sendRefundCompletedEmail({
+        ...base,
+        paymentMethod: order.payment.method,
+        completionDate: order.payment.refund.refundedAt,
+      });
+    }
+  } catch (err) {
+    logger.error('Failed to send refund email', {
+      orderId: order._id.toString(),
+      emailType,
+      error: (err as Error).message,
+    });
+  }
 }
 
 export async function processWebhookEvent(
@@ -157,6 +204,24 @@ export async function processWebhookEvent(
       return;
     }
     throw err;
+  }
+
+  if (body.event === 'refund.processed') {
+    const refundEntity = body.payload.refund?.entity;
+    if (!refundEntity) {
+      logger.info('refund.processed webhook without a refund entity ignored');
+      return;
+    }
+    const order = await Order.findOne({ 'payment.refund.razorpayRefundId': refundEntity.id });
+    if (!order?.payment.refund) {
+      logger.warn('Webhook received for unknown Razorpay refund', { refundId: refundEntity.id });
+      return;
+    }
+    if (order.payment.refund.status === 'processed') return; // already processed, safe no-op
+    order.payment.refund.status = 'processed';
+    await order.save();
+    await notifyRefundEmail(order, 'completed');
+    return;
   }
 
   const paymentEntity = body.payload.payment?.entity;
@@ -227,15 +292,20 @@ export async function refundOrder(
     amount: Number(refund.amount) / 100,
     reason: input.reason,
     refundedAt: new Date(),
+    status: 'processing',
   };
 
+  let result: OrderDocument;
   if (order.status === 'paid' || order.status === 'processing') {
-    return transitionOrderStatus(order, 'cancelled', {
+    result = await transitionOrderStatus(order, 'cancelled', {
       changedBy: adminId,
       note: `Refunded: ${input.reason ?? 'Admin-initiated refund'}`,
     });
+  } else {
+    await order.save();
+    result = order;
   }
 
-  await order.save();
-  return order;
+  await notifyRefundEmail(result, 'initiated');
+  return result;
 }

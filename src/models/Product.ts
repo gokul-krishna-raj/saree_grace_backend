@@ -31,6 +31,7 @@ export interface ProductDocument extends Document {
   description: string;
   type: ProductType;
   category: Types.ObjectId;
+  occasions: Types.ObjectId[];
   fabric?: string;
   color?: string;
   loomType: LoomType;
@@ -86,6 +87,10 @@ const productSchema = new Schema<ProductDocument>(
     description: { type: String, required: true },
     type: { type: String, enum: ['simple', 'variant'], required: true },
     category: { type: Schema.Types.ObjectId, ref: 'Category', required: true, index: true },
+    // A product can be tagged under multiple occasions (e.g. a saree
+    // suited for both "Wedding" and "Festive") — powers the "Shop by
+    // Occasion" browse filter alongside the existing category filter.
+    occasions: { type: [Schema.Types.ObjectId], ref: 'Occasion', default: [] },
     fabric: { type: String, trim: true, index: true },
     color: { type: String, trim: true, index: true },
     loomType: {
@@ -136,6 +141,7 @@ productSchema.index({ name: 'text', description: 'text', fabric: 'text', color: 
 productSchema.index({ category: 1, isActive: 1, createdAt: -1 });
 productSchema.index({ category: 1, price: 1 });
 productSchema.index({ loomType: 1, isActive: 1 });
+productSchema.index({ occasions: 1, isActive: 1 });
 productSchema.index({ 'variants.sku': 1 }, { unique: true, sparse: true });
 
 productSchema.methods.minPrice = function (this: ProductDocument): number {

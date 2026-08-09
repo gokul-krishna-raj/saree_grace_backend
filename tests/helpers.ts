@@ -15,6 +15,7 @@ export async function createUser(
     email?: string;
     password?: string;
     role?: 'customer' | 'admin';
+    isVerified?: boolean;
   } = {},
 ): Promise<{ id: string; email: string; token: string }> {
   const password = overrides.password ?? 'Password123!';
@@ -25,6 +26,9 @@ export async function createUser(
       overrides.email ?? `user-${Date.now()}-${Math.random().toString(36).slice(2)}@example.com`,
     passwordHash,
     role: overrides.role ?? 'customer',
+    // This helper creates users directly (bypassing the signup/OTP flow) so
+    // callers get an immediately-usable account unless they opt out.
+    isVerified: overrides.isVerified ?? true,
   });
   const token = signAccessToken(user._id.toString(), user.role);
   return { id: user._id.toString(), email: user.email, token };

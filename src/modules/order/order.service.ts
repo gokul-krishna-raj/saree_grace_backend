@@ -8,6 +8,7 @@ import { clampLimit, decodeCursor, encodeCursor } from '../../utils/pagination';
 import { assertValidTransition, STOCK_RESTORING_STATUSES } from './orderStateMachine';
 import { restoreStock } from '../product/product.service';
 import { CreateOrderInput, ListOrdersQuery, UpdateOrderStatusInput } from './order.validation';
+import { triggerOrderConfirmationEmail, triggerOrderStatusEmail } from '../email/email.events';
 
 const FREE_SHIPPING_THRESHOLD = 999;
 const FLAT_SHIPPING_FEE = 99;
@@ -93,6 +94,7 @@ export async function createOrderFromCart(
   if (!createdOrder) {
     throw ApiError.internal('Order creation failed unexpectedly');
   }
+  await triggerOrderConfirmationEmail(createdOrder);
   return createdOrder;
 }
 
@@ -209,6 +211,7 @@ export async function transitionOrderStatus(
   }
 
   await order.save();
+  await triggerOrderStatusEmail(order, to);
   return order;
 }
 

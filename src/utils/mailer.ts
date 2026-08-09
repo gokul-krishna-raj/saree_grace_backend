@@ -1,15 +1,36 @@
+import { getMailTransporter } from '../config/mailer';
+import { env } from '../config/env';
 import { logger } from './logger';
 
-/**
- * Stubbed email sender. Swap this for SES/SendGrid/etc. in production —
- * the call sites (password reset) are already isolated behind this
- * single function so that's a one-file change.
- */
-export async function sendEmail(to: string, subject: string, body: string): Promise<void> {
-  logger.info('Email (stubbed, not actually sent)', { to, subject, body });
-  return Promise.resolve();
+function stripHtml(html: string): string {
+  return html
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
-export function buildPasswordResetEmailBody(resetUrl: string): string {
-  return `You requested a password reset. Use the link below (valid for a limited time):\n\n${resetUrl}\n\nIf you did not request this, you can ignore this email.`;
+/**
+ * Sends via the configured SMTP transporter (nodemailer). Falls back to a
+ * stub log when EMAIL_* isn't configured (e.g. local dev) instead of
+ * throwing — mirrors how Google SSO degrades when unconfigured.
+ */
+export async function sendEmail(to: string, subject: string, html: string): Promise<void> {
+  const transporter = getMailTransporter();
+  if (!transporter) {
+    logger.info('Email (stubbed, not actually sent — EMAIL_* not configured)', {
+      to,
+      subject,
+      html,
+    });
+    return;
+  }
+
+  await transporter.sendMail({
+    from: `"${env.EMAIL_FROM_NAME}" <${env.EMAIL_FROM_ADDRESS}>`,
+    to,
+    subject,
+    html,
+    text: stripHtml(html),
+  });
+  logger.info('Email sent', { to, subject });
 }

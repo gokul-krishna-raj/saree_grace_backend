@@ -5,6 +5,7 @@ import { listReviewsForProduct } from '../review/review.controller';
 import {
   listProductsQuerySchema,
   searchProductsQuerySchema,
+  listBestSellersQuerySchema,
   slugParamSchema,
 } from './product.validation';
 import { productIdParamSchema } from './product.validation';
@@ -17,6 +18,11 @@ router.get(
   '/search',
   validate({ query: searchProductsQuerySchema }),
   productController.searchProducts,
+);
+router.get(
+  '/best-sellers',
+  validate({ query: listBestSellersQuerySchema }),
+  productController.listBestSellers,
 );
 router.get(
   '/:id/reviews',

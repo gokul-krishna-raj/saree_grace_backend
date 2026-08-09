@@ -41,6 +41,10 @@ export interface OrderPayment {
     amount: number;
     reason?: string;
     refundedAt: Date;
+    // 'processing' the moment the refund is created; 'processed' only once
+    // Razorpay's `refund.processed` webhook confirms it — the customer's
+    // "refund completed" email is gated on the latter, never the former.
+    status: 'processing' | 'processed';
   };
 }
 
@@ -151,6 +155,7 @@ const orderSchema = new Schema<OrderDocument>(
         amount: { type: Number },
         reason: { type: String },
         refundedAt: { type: Date },
+        status: { type: String, enum: ['processing', 'processed'] },
       },
     },
     tracking: {

@@ -28,6 +28,25 @@ const envSchema = z.object({
 
   PASSWORD_RESET_TOKEN_EXPIRES_MIN: z.coerce.number().int().positive().default(30),
 
+  OTP_EXPIRY_MINUTES: z.coerce.number().int().positive().default(5),
+  OTP_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
+  OTP_RESEND_COOLDOWN_SECONDS: z.coerce.number().int().positive().default(60),
+
+  EMAIL_HOST: z.string().optional(),
+  EMAIL_PORT: z.coerce.number().int().positive().default(587),
+  EMAIL_SECURE: z.coerce.boolean().default(false),
+  EMAIL_USER: z.string().optional(),
+  EMAIL_PASSWORD: z.string().optional(),
+  EMAIL_FROM_NAME: z.string().default('Saree Grace'),
+  EMAIL_FROM_ADDRESS: z.string().optional(),
+
+  // Customer-facing base URL, used to build order/cart/return links in
+  // transactional emails (e.g. `${APP_URL}/orders/:id`).
+  APP_URL: z.string().optional(),
+  // Falls back to EMAIL_FROM_ADDRESS when unset — see loadEnv() below.
+  SUPPORT_EMAIL: z.string().optional(),
+  ABANDONED_CART_DELAY_HOURS: z.coerce.number().int().positive().default(24),
+
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(900000),
   RATE_LIMIT_MAX: z.coerce.number().int().positive().default(300),
   AUTH_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(900000),
@@ -39,10 +58,13 @@ const envSchema = z.object({
   SEED_ADMIN_PASSWORD: z.string().optional(),
 });
 
-export type Env = z.infer<typeof envSchema> & {
+export type Env = Omit<z.infer<typeof envSchema>, 'SUPPORT_EMAIL'> & {
   isProduction: boolean;
   isTest: boolean;
   corsOriginList: string[];
+  // Always resolved to a concrete string by loadEnv() (falls back to
+  // EMAIL_FROM_ADDRESS), unlike the raw optional schema field.
+  SUPPORT_EMAIL: string;
 };
 
 function loadEnv(): Env {
@@ -67,6 +89,11 @@ function loadEnv(): Env {
       'RAZORPAY_KEY_SECRET',
       'RAZORPAY_WEBHOOK_SECRET',
       'GOOGLE_CLIENT_ID',
+      'EMAIL_HOST',
+      'EMAIL_USER',
+      'EMAIL_PASSWORD',
+      'EMAIL_FROM_ADDRESS',
+      'APP_URL',
     ];
     const missing = productionRequired.filter((key) => !data[key]);
     if (missing.length > 0) {
@@ -81,6 +108,9 @@ function loadEnv(): Env {
     corsOriginList: data.CORS_ORIGINS.split(',')
       .map((origin) => origin.trim())
       .filter(Boolean),
+    // No dedicated support inbox configured yet in most environments —
+    // the sender address is a reasonable default to show customers.
+    SUPPORT_EMAIL: data.SUPPORT_EMAIL ?? data.EMAIL_FROM_ADDRESS ?? '',
   };
 }
 
