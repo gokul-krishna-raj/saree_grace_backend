@@ -7,6 +7,10 @@ const coercedBool = z
   .union([z.boolean(), z.string()])
   .transform((v) => (typeof v === 'string' ? v === 'true' : v));
 
+// Loom origin is never inferred — it must be set explicitly per product and
+// defaults to 'unknown' rather than assuming handloom.
+const loomType = z.enum(['handloom', 'powerloom', 'unknown']);
+
 // Multipart form fields arrive as strings — coerce numbers/booleans/arrays.
 export const createSimpleProductSchema = z.object({
   type: z.literal('simple'),
@@ -15,7 +19,7 @@ export const createSimpleProductSchema = z.object({
   category: objectId,
   fabric: z.string().trim().max(100).optional(),
   color: z.string().trim().max(100).optional(),
-  isHandloom: coercedBool.optional().default(false),
+  loomType: loomType.optional().default('unknown'),
   price: z.coerce.number().positive(),
   compareAtPrice: z.coerce.number().positive().optional(),
   stock: z.coerce.number().int().min(0),
@@ -29,7 +33,7 @@ export const createVariantShellProductSchema = z.object({
   category: objectId,
   fabric: z.string().trim().max(100).optional(),
   color: z.string().trim().max(100).optional(),
-  isHandloom: coercedBool.optional().default(false),
+  loomType: loomType.optional().default('unknown'),
   variantAttributeNames: z
     .union([z.array(z.string()), z.string()])
     .transform((v) =>
@@ -54,7 +58,7 @@ export const updateProductSchema = z.object({
   category: objectId.optional(),
   fabric: z.string().trim().max(100).optional(),
   color: z.string().trim().max(100).optional(),
-  isHandloom: coercedBool.optional(),
+  loomType: loomType.optional(),
   price: z.coerce.number().positive().optional(),
   compareAtPrice: z.coerce.number().positive().optional(),
   stock: z.coerce.number().int().min(0).optional(),
@@ -104,10 +108,7 @@ export const listProductsQuerySchema = z.object({
   color: z.string().optional(),
   minPrice: z.coerce.number().nonnegative().optional(),
   maxPrice: z.coerce.number().nonnegative().optional(),
-  handloomOnly: z
-    .enum(['true', 'false'])
-    .optional()
-    .transform((v) => v === 'true'),
+  loomType: loomType.optional(),
   inStockOnly: z
     .enum(['true', 'false'])
     .optional()

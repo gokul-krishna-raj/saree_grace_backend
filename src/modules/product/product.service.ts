@@ -64,7 +64,7 @@ export async function createSimpleProduct(
     category: input.category,
     fabric: input.fabric,
     color: input.color,
-    isHandloom: input.isHandloom,
+    loomType: input.loomType,
     price: input.price,
     compareAtPrice: input.compareAtPrice,
     stock: input.stock,
@@ -87,7 +87,7 @@ export async function createVariantShellProduct(
     category: input.category,
     fabric: input.fabric,
     color: input.color,
-    isHandloom: input.isHandloom,
+    loomType: input.loomType,
     variantAttributeNames: input.variantAttributeNames,
     variants: [],
   });
@@ -119,7 +119,7 @@ export async function updateProduct(
   if (input.description !== undefined) product.description = input.description;
   if (input.fabric !== undefined) product.fabric = input.fabric;
   if (input.color !== undefined) product.color = input.color;
-  if (input.isHandloom !== undefined) product.isHandloom = input.isHandloom;
+  if (input.loomType !== undefined) product.loomType = input.loomType;
   if (input.isActive !== undefined) product.isActive = input.isActive;
 
   if (product.type === 'simple') {
@@ -277,7 +277,7 @@ export async function listProducts(query: ListProductsQuery): Promise<ProductLis
   if (query.category) filter.category = query.category;
   if (query.fabric) filter.fabric = query.fabric;
   if (query.color) filter.color = query.color;
-  if (query.handloomOnly) filter.isHandloom = true;
+  if (query.loomType) filter.loomType = query.loomType;
 
   if (query.minPrice !== undefined || query.maxPrice !== undefined) {
     const priceFilter: Record<string, number> = {};

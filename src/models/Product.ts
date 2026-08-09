@@ -1,4 +1,5 @@
 import { Schema, model, Document, Types } from 'mongoose';
+import { getLoomLabel } from '../utils/loomLabel';
 
 export interface ProductImage {
   url: string;
@@ -19,6 +20,10 @@ export interface ProductVariant {
 
 export type ProductType = 'simple' | 'variant';
 
+// Loom provenance is unknown unless a specific product has been verified —
+// never inferred from name/fabric/category. See getLoomLabel() for display.
+export type LoomType = 'handloom' | 'powerloom' | 'unknown';
+
 export interface ProductDocument extends Document {
   _id: Types.ObjectId;
   name: string;
@@ -28,7 +33,7 @@ export interface ProductDocument extends Document {
   category: Types.ObjectId;
   fabric?: string;
   color?: string;
-  isHandloom: boolean;
+  loomType: LoomType;
 
   // Simple product fields — required when type === 'simple'
   price?: number;
@@ -49,6 +54,7 @@ export interface ProductDocument extends Document {
 
   minPrice(): number;
   startingPrice: number;
+  loomLabel: string | null;
 }
 
 const productImageSchema = new Schema<ProductImage>(
@@ -82,7 +88,12 @@ const productSchema = new Schema<ProductDocument>(
     category: { type: Schema.Types.ObjectId, ref: 'Category', required: true, index: true },
     fabric: { type: String, trim: true, index: true },
     color: { type: String, trim: true, index: true },
-    isHandloom: { type: Boolean, default: false, index: true },
+    loomType: {
+      type: String,
+      enum: ['handloom', 'powerloom', 'unknown'],
+      default: 'unknown',
+      index: true,
+    },
 
     price: {
       type: Number,
@@ -124,7 +135,7 @@ productSchema.index({ name: 'text', description: 'text', fabric: 'text', color: 
 // Compound indexes matching common browse filter combinations.
 productSchema.index({ category: 1, isActive: 1, createdAt: -1 });
 productSchema.index({ category: 1, price: 1 });
-productSchema.index({ isHandloom: 1, isActive: 1 });
+productSchema.index({ loomType: 1, isActive: 1 });
 productSchema.index({ 'variants.sku': 1 }, { unique: true, sparse: true });
 
 productSchema.methods.minPrice = function (this: ProductDocument): number {
@@ -144,6 +155,12 @@ productSchema.methods.minPrice = function (this: ProductDocument): number {
 // has to recompute "starting from ₹X" for variant products itself.
 productSchema.virtual('startingPrice').get(function (this: ProductDocument) {
   return this.minPrice();
+});
+
+// Serialized on every JSON response so the frontend never renders a loom
+// claim beyond what getLoomLabel() supports — null means no badge.
+productSchema.virtual('loomLabel').get(function (this: ProductDocument) {
+  return getLoomLabel(this.loomType);
 });
 
 export const Product = model<ProductDocument>('Product', productSchema);

@@ -4,8 +4,15 @@ import { sendSuccess } from '../../utils/ApiResponse';
 import * as categoryService from './category.service';
 import { CreateCategoryInput, UpdateCategoryInput } from './category.validation';
 
+function fileFromRequest(req: Request): Express.Multer.File | undefined {
+  return req.file as Express.Multer.File | undefined;
+}
+
 export const createCategory = asyncHandler(async (req: Request, res: Response) => {
-  const category = await categoryService.createCategory(req.body as CreateCategoryInput);
+  const category = await categoryService.createCategory(
+    req.body as CreateCategoryInput,
+    fileFromRequest(req),
+  );
   sendSuccess(res, { category }, 201);
 });
 
@@ -13,6 +20,7 @@ export const updateCategory = asyncHandler(async (req: Request, res: Response) =
   const category = await categoryService.updateCategory(
     req.params.id as string,
     req.body as UpdateCategoryInput,
+    fileFromRequest(req),
   );
   sendSuccess(res, { category });
 });

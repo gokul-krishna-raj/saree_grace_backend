@@ -61,19 +61,19 @@ async function upsertCategory(name: string, parentId?: mongoose.Types.ObjectId) 
 }
 
 async function upsertSimpleProduct(categoryId: mongoose.Types.ObjectId): Promise<void> {
-  const slug = 'handloom-cotton-saree-blue';
+  const slug = 'cotton-saree-blue';
   const existing = await Product.findOne({ slug });
   if (existing) return;
 
   await Product.create({
     type: 'simple',
-    name: 'Handloom Cotton Saree - Blue',
+    name: 'Cotton Saree - Blue',
     slug,
-    description: 'A breathable, handwoven cotton saree in a calming shade of blue.',
+    description: 'A breathable cotton saree in a calming shade of blue.',
     category: categoryId,
     fabric: 'Cotton',
     color: 'Blue',
-    isHandloom: true,
+    loomType: 'unknown',
     price: 1899,
     compareAtPrice: 2499,
     stock: 25,
@@ -95,7 +95,7 @@ async function upsertVariantProduct(categoryId: mongoose.Types.ObjectId): Promis
       'A rich, traditional Kanjivaram silk saree available in multiple colors and border widths.',
     category: categoryId,
     fabric: 'Silk',
-    isHandloom: true,
+    loomType: 'unknown',
     variantAttributeNames: ['color', 'borderWidth'],
     variants: [
       {

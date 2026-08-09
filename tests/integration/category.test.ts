@@ -1,6 +1,9 @@
 import { request, buildApp, createAdmin, createUser, authHeader } from '../helpers';
 import { Product } from '../../src/models/Product';
 import { Category } from '../../src/models/Category';
+import { deleteCloudinaryImage } from '../../src/utils/cloudinaryUpload';
+
+const fakeImage = Buffer.from('fake-image-bytes');
 
 describe('Categories', () => {
   const app = buildApp();
@@ -118,5 +121,80 @@ describe('Categories', () => {
 
     expect(res.status).toBe(200);
     expect(await Category.findById(category._id)).toBeNull();
+  });
+
+  it('allows an admin to create a category with an uploaded image', async () => {
+    const admin = await createAdmin();
+    const res = await request(app)
+      .post('/api/v1/categories')
+      .set(authHeader(admin.token))
+      .field('name', 'Tussar Silk')
+      .attach('image', fakeImage, { filename: 'tussar.jpg', contentType: 'image/jpeg' });
+
+    expect(res.status).toBe(201);
+    expect(res.body.data.category.image.url).toEqual(expect.any(String));
+    expect(res.body.data.category.image.publicId).toEqual(expect.any(String));
+  });
+
+  it('replaces a category image and cleans up the old Cloudinary asset', async () => {
+    const admin = await createAdmin();
+    const createRes = await request(app)
+      .post('/api/v1/categories')
+      .set(authHeader(admin.token))
+      .field('name', 'Mysore Silk')
+      .attach('image', fakeImage, { filename: 'a.jpg', contentType: 'image/jpeg' });
+
+    const categoryId = createRes.body.data.category._id;
+    const oldPublicId = createRes.body.data.category.image.publicId;
+
+    const updateRes = await request(app)
+      .put(`/api/v1/categories/${categoryId}`)
+      .set(authHeader(admin.token))
+      .attach('image', fakeImage, { filename: 'b.jpg', contentType: 'image/jpeg' });
+
+    expect(updateRes.status).toBe(200);
+    expect(updateRes.body.data.category.image.publicId).toEqual(expect.any(String));
+    expect(deleteCloudinaryImage).toHaveBeenCalledWith(oldPublicId);
+  });
+
+  it('removes a category image via removeImage without uploading a replacement', async () => {
+    const admin = await createAdmin();
+    const createRes = await request(app)
+      .post('/api/v1/categories')
+      .set(authHeader(admin.token))
+      .field('name', 'Patola Silk')
+      .attach('image', fakeImage, { filename: 'a.jpg', contentType: 'image/jpeg' });
+
+    const categoryId = createRes.body.data.category._id;
+    const publicId = createRes.body.data.category.image.publicId;
+
+    const updateRes = await request(app)
+      .put(`/api/v1/categories/${categoryId}`)
+      .set(authHeader(admin.token))
+      .field('removeImage', 'true');
+
+    expect(updateRes.status).toBe(200);
+    expect(updateRes.body.data.category.image).toBeUndefined();
+    expect(deleteCloudinaryImage).toHaveBeenCalledWith(publicId);
+  });
+
+  it('deletes a category and cleans up its Cloudinary image', async () => {
+    const admin = await createAdmin();
+    const createRes = await request(app)
+      .post('/api/v1/categories')
+      .set(authHeader(admin.token))
+      .field('name', 'Ikkat Silk')
+      .attach('image', fakeImage, { filename: 'a.jpg', contentType: 'image/jpeg' });
+
+    const categoryId = createRes.body.data.category._id;
+    const publicId = createRes.body.data.category.image.publicId;
+
+    const deleteRes = await request(app)
+      .delete(`/api/v1/categories/${categoryId}`)
+      .set(authHeader(admin.token));
+
+    expect(deleteRes.status).toBe(200);
+    expect(await Category.findById(categoryId)).toBeNull();
+    expect(deleteCloudinaryImage).toHaveBeenCalledWith(publicId);
   });
 });

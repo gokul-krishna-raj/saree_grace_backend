@@ -2,6 +2,7 @@ import { Category, CategoryDocument } from '../../models/Category';
 import { Product } from '../../models/Product';
 import { ApiError } from '../../utils/ApiError';
 import { slugify } from '../../utils/slugify';
+import { uploadBufferToCloudinary, deleteCloudinaryImage } from '../../utils/cloudinaryUpload';
 import { CreateCategoryInput, UpdateCategoryInput } from './category.validation';
 
 async function generateUniqueSlug(name: string, excludeId?: string): Promise<string> {
@@ -21,7 +22,10 @@ async function generateUniqueSlug(name: string, excludeId?: string): Promise<str
   }
 }
 
-export async function createCategory(input: CreateCategoryInput): Promise<CategoryDocument> {
+export async function createCategory(
+  input: CreateCategoryInput,
+  file?: Express.Multer.File,
+): Promise<CategoryDocument> {
   if (input.parentCategory) {
     const parent = await Category.findById(input.parentCategory);
     if (!parent) {
@@ -29,17 +33,21 @@ export async function createCategory(input: CreateCategoryInput): Promise<Catego
     }
   }
   const slug = await generateUniqueSlug(input.name);
+  const image = file ? await uploadBufferToCloudinary(file.buffer) : undefined;
+
   return Category.create({
     name: input.name,
     slug,
     description: input.description,
     parentCategory: input.parentCategory ?? null,
+    image: image ? { url: image.url, publicId: image.publicId } : undefined,
   });
 }
 
 export async function updateCategory(
   id: string,
   input: UpdateCategoryInput,
+  file?: Express.Multer.File,
 ): Promise<CategoryDocument> {
   const category = await Category.findById(id);
   if (!category) {
@@ -68,6 +76,17 @@ export async function updateCategory(
   }
   if (input.isActive !== undefined) {
     category.isActive = input.isActive;
+  }
+
+  if (file) {
+    if (category.image) {
+      await deleteCloudinaryImage(category.image.publicId);
+    }
+    const uploaded = await uploadBufferToCloudinary(file.buffer);
+    category.image = { url: uploaded.url, publicId: uploaded.publicId };
+  } else if (input.removeImage && category.image) {
+    await deleteCloudinaryImage(category.image.publicId);
+    category.image = undefined;
   }
 
   await category.save();
@@ -100,6 +119,9 @@ export async function deleteCategory(id: string): Promise<void> {
     );
   }
 
+  if (category.image) {
+    await deleteCloudinaryImage(category.image.publicId);
+  }
   await category.deleteOne();
 }
 

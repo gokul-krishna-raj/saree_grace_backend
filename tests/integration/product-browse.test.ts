@@ -60,7 +60,7 @@ describe('Product browsing', () => {
     expect(res.body.data.products.length).toBeLessThanOrEqual(50);
   });
 
-  it('combines category, price range, and handloom filters', async () => {
+  it('combines category, price range, and loom type filters', async () => {
     const categoryA = await Category.create({ name: 'Filter A', slug: 'filter-a' });
     const categoryB = await Category.create({ name: 'Filter B', slug: 'filter-b' });
 
@@ -72,7 +72,7 @@ describe('Product browsing', () => {
       category: categoryA._id,
       price: 500,
       stock: 5,
-      isHandloom: true,
+      loomType: 'handloom',
     });
     await Product.create({
       type: 'simple',
@@ -82,7 +82,7 @@ describe('Product browsing', () => {
       category: categoryA._id,
       price: 5000,
       stock: 5,
-      isHandloom: true,
+      loomType: 'handloom',
     });
     await Product.create({
       type: 'simple',
@@ -92,7 +92,7 @@ describe('Product browsing', () => {
       category: categoryA._id,
       price: 500,
       stock: 5,
-      isHandloom: false,
+      loomType: 'unknown',
     });
     await Product.create({
       type: 'simple',
@@ -102,12 +102,12 @@ describe('Product browsing', () => {
       category: categoryB._id,
       price: 500,
       stock: 5,
-      isHandloom: true,
+      loomType: 'handloom',
     });
 
     const res = await request(app).get('/api/v1/products').query({
       category: categoryA._id.toString(),
-      handloomOnly: 'true',
+      loomType: 'handloom',
       maxPrice: 1000,
     });
 

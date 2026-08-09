@@ -150,6 +150,21 @@
           }
         },
         {
+          "name": "[Admin] Create category with image",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{adminAccessToken}}" }],
+            "url": "{{baseUrl}}/categories",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "name", "value": "Silk Sarees" },
+                { "key": "image", "type": "file", "src": [] }
+              ]
+            }
+          }
+        },
+        {
           "name": "[Admin] Update category",
           "request": {
             "method": "PUT",
@@ -159,6 +174,18 @@
             ],
             "url": "{{baseUrl}}/categories/{{categoryId}}",
             "body": { "mode": "raw", "raw": "{\n  \"name\": \"Premium Silk Sarees\"\n}" }
+          }
+        },
+        {
+          "name": "[Admin] Remove category image",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Authorization", "value": "Bearer {{adminAccessToken}}" }],
+            "url": "{{baseUrl}}/categories/{{categoryId}}",
+            "body": {
+              "mode": "formdata",
+              "formdata": [{ "key": "removeImage", "value": "true" }]
+            }
           }
         },
         {
@@ -179,7 +206,7 @@
           "name": "List products (filtered)",
           "request": {
             "method": "GET",
-            "url": "{{baseUrl}}/products?category={{categoryId}}&handloomOnly=true&inStockOnly=true&sort=price_asc"
+            "url": "{{baseUrl}}/products?category={{categoryId}}&loomType=handloom&inStockOnly=true&sort=price_asc"
           }
         },
         { "name": "Search products", "request": { "method": "GET", "url": "{{baseUrl}}/products/search?q=silk" } },
@@ -205,7 +232,7 @@
                 { "key": "category", "value": "{{categoryId}}" },
                 { "key": "price", "value": "1499" },
                 { "key": "stock", "value": "10" },
-                { "key": "isHandloom", "value": "true" },
+                { "key": "loomType", "value": "handloom" },
                 { "key": "images", "type": "file", "src": [] }
               ]
             }
