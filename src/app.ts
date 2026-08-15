@@ -4,10 +4,12 @@ import cors from 'cors';
 import compression from 'compression';
 import morgan from 'morgan';
 import { env } from './config/env';
+import { ApiError } from './utils/ApiError';
 import { requestContext, requestLogger } from './middlewares/requestContext';
 import { sanitizeInput } from './middlewares/sanitize';
 import { globalRateLimiter } from './middlewares/rateLimiter';
 import { errorHandler, notFoundHandler } from './middlewares/errorHandler';
+import { logger } from './utils/logger';
 import routes from './routes';
 import healthRoutes from './modules/health/health.routes';
 
@@ -32,7 +34,12 @@ export function createApp(): Express {
           callback(null, true);
           return;
         }
-        callback(new Error(`Origin ${origin} is not allowed by CORS policy`));
+        // A plain Error here would fall through errorHandler's generic
+        // catch-all as an indistinguishable 500 — an ApiError gives a clean
+        // 403 that's obviously a CORS/config mismatch, not a server bug.
+        // Logged explicitly since ApiError below 500 isn't otherwise logged.
+        logger.warn('Rejected CORS origin', { origin, allowed: env.corsOriginList });
+        callback(ApiError.forbidden(`Origin ${origin} is not allowed by CORS policy`));
       },
       credentials: true,
     }),

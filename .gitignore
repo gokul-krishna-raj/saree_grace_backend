@@ -5,6 +5,9 @@ coverage/
 .env
 .env.local
 .env.*.local
+# Per-stage secrets (docs/deployment.md) — .env.dev, .env.staging, .env.prod
+.env.*
+!.env.example
 *.log
 npm-debug.log*
 .DS_Store

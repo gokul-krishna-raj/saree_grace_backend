@@ -12,6 +12,15 @@ provider:
   memorySize: 512
   timeout: 25
   logRetentionInDays: 30
+  # Without this, API Gateway treats an incoming multipart/form-data body
+  # (product image uploads) as UTF-8 text by default — image bytes aren't
+  # valid UTF-8, so uploads risk silent corruption on the way to Lambda even
+  # when well under the size limit. This tells API Gateway to base64-encode
+  # matching request bodies (and set `isBase64Encoded` on the Lambda event),
+  # which serverless-http already decodes back to a Buffer automatically.
+  apiGateway:
+    binaryMediaTypes:
+      - 'multipart/form-data'
   # HTTPS is enforced automatically: API Gateway's default execute-api
   # endpoint only ever serves HTTPS (plain HTTP requests are rejected at the
   # edge) — see docs/deployment.md for the custom-domain + ACM cert setup

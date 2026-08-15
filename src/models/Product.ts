@@ -55,6 +55,9 @@ export interface ProductDocument extends Document {
 
   minPrice(): number;
   startingPrice: number;
+  maxPrice: number;
+  totalStock: number;
+  variantCount: number;
   loomLabel: string | null;
 }
 
@@ -143,6 +146,7 @@ productSchema.index({ category: 1, price: 1 });
 productSchema.index({ loomType: 1, isActive: 1 });
 productSchema.index({ occasions: 1, isActive: 1 });
 productSchema.index({ 'variants.sku': 1 }, { unique: true, sparse: true });
+productSchema.index({ type: 1 });
 
 productSchema.methods.minPrice = function (this: ProductDocument): number {
   if (this.type === 'simple') {
@@ -161,6 +165,31 @@ productSchema.methods.minPrice = function (this: ProductDocument): number {
 // has to recompute "starting from ₹X" for variant products itself.
 productSchema.virtual('startingPrice').get(function (this: ProductDocument) {
   return this.minPrice();
+});
+
+// Aggregate fields for variant products (e.g. "₹4999–₹5299, 17 in stock
+// across 4 colors") — simple products report their own price/stock so the
+// frontend can use these fields uniformly regardless of product type. Named
+// distinctly from the minPrice() method above since a virtual and a method
+// cannot share a name on the same schema.
+productSchema.virtual('maxPrice').get(function (this: ProductDocument) {
+  if (this.type === 'simple') {
+    return this.price ?? 0;
+  }
+  const activePrices = (this.variants ?? []).filter((v) => v.isActive).map((v) => v.price);
+  return activePrices.length > 0 ? Math.max(...activePrices) : 0;
+});
+productSchema.virtual('totalStock').get(function (this: ProductDocument) {
+  if (this.type === 'simple') {
+    return this.stock ?? 0;
+  }
+  return (this.variants ?? []).filter((v) => v.isActive).reduce((sum, v) => sum + v.stock, 0);
+});
+productSchema.virtual('variantCount').get(function (this: ProductDocument) {
+  if (this.type === 'simple') {
+    return 0;
+  }
+  return (this.variants ?? []).filter((v) => v.isActive).length;
 });
 
 // Serialized on every JSON response so the frontend never renders a loom

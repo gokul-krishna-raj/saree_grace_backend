@@ -18,14 +18,14 @@ router.use(requireAuth, requireAdmin);
 
 router.post(
   '/',
-  uploadImages.array('images', 8),
+  uploadImages.array('images', 10),
   validate({ body: createProductSchema }),
   productController.createProduct,
 );
 
 router.put(
   '/:id',
-  uploadImages.array('images', 8),
+  uploadImages.array('images', 10),
   validate({ params: productIdParamSchema, body: updateProductSchema }),
   productController.updateProduct,
 );
@@ -34,14 +34,14 @@ router.delete('/:id', validate({ params: productIdParamSchema }), productControl
 
 router.post(
   '/:id/variants',
-  uploadImages.array('images', 8),
+  uploadImages.array('images', 10),
   validate({ params: productIdParamSchema, body: addVariantSchema }),
   productController.addVariant,
 );
 
 router.patch(
   '/:id/variants/:variantId',
-  uploadImages.array('images', 8),
+  uploadImages.array('images', 10),
   validate({ params: variantParamSchema, body: updateVariantSchema }),
   productController.updateVariant,
 );

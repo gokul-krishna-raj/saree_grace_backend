@@ -74,6 +74,30 @@ async function uploadAll(files: Express.Multer.File[]): Promise<ProductImage[]> 
   return uploaded.map((u, idx) => ({ url: u.url, publicId: u.publicId, isPrimary: idx === 0 }));
 }
 
+function attributesEqual(a: Map<string, string>, b: Record<string, string>): boolean {
+  const bEntries = Object.entries(b);
+  if (a.size !== bEntries.length) return false;
+  return bEntries.every(([key, value]) => a.get(key) === value);
+}
+
+/**
+ * Two variants of the same product (e.g. two "color: Maroon" entries) are
+ * indistinguishable to a shopper picking a color swatch, so this is rejected
+ * the same way a duplicate SKU is — a 409, not a silent duplicate listing.
+ */
+function assertNoDuplicateAttributes(
+  product: ProductDocument,
+  attributes: Record<string, string>,
+  excludeVariantId?: string,
+): void {
+  const clash = product.variants.some(
+    (v) => v._id.toString() !== excludeVariantId && attributesEqual(v.attributes, attributes),
+  );
+  if (clash) {
+    throw ApiError.conflict('A variant with these exact attributes already exists');
+  }
+}
+
 export async function createSimpleProduct(
   input: CreateSimpleProductInput,
   files: Express.Multer.File[],
@@ -216,6 +240,7 @@ export async function addVariant(
   if (skuTaken) {
     throw ApiError.conflict(`SKU already in use: ${input.sku}`);
   }
+  assertNoDuplicateAttributes(product, input.attributes);
 
   const images = files.length > 0 ? await uploadAll(files) : [];
 
@@ -257,6 +282,7 @@ export async function updateVariant(
     variant.sku = input.sku;
   }
   if (input.attributes !== undefined) {
+    assertNoDuplicateAttributes(product, input.attributes, variantId);
     variant.attributes = new Map(Object.entries(input.attributes));
   }
   if (input.price !== undefined) variant.price = input.price;

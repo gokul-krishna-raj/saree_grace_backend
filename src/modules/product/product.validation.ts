@@ -96,11 +96,22 @@ export const updateProductSchema = z.object({
     .optional(),
 });
 
+const HEX_COLOR_RE = /^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/;
+
+// `attributes` is a free-form key/value bag (color, size, colorCode, ...) —
+// the one exception is `colorCode`, which is only ever meaningful to the
+// frontend as a CSS/swatch color, so it's validated as a hex string here
+// rather than left fully generic like every other attribute key.
+const variantAttributesSchema = z
+  .union([z.record(z.string()), z.string()])
+  .transform((v) => (typeof v === 'string' ? (JSON.parse(v) as Record<string, string>) : v))
+  .refine((attrs) => attrs.colorCode === undefined || HEX_COLOR_RE.test(attrs.colorCode), {
+    message: 'colorCode must be a valid hex color (e.g. #800000 or #f00)',
+  });
+
 export const addVariantSchema = z.object({
   sku: z.string().trim().min(1).toUpperCase(),
-  attributes: z
-    .union([z.record(z.string()), z.string()])
-    .transform((v) => (typeof v === 'string' ? (JSON.parse(v) as Record<string, string>) : v)),
+  attributes: variantAttributesSchema,
   price: z.coerce.number().positive(),
   compareAtPrice: z.coerce.number().positive().optional(),
   stock: z.coerce.number().int().min(0),
@@ -108,10 +119,7 @@ export const addVariantSchema = z.object({
 
 export const updateVariantSchema = z.object({
   sku: z.string().trim().min(1).toUpperCase().optional(),
-  attributes: z
-    .union([z.record(z.string()), z.string()])
-    .transform((v) => (typeof v === 'string' ? (JSON.parse(v) as Record<string, string>) : v))
-    .optional(),
+  attributes: variantAttributesSchema.optional(),
   price: z.coerce.number().positive().optional(),
   compareAtPrice: z.coerce.number().positive().optional(),
   stock: z.coerce.number().int().min(0).optional(),
