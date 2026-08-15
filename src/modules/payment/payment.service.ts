@@ -104,6 +104,20 @@ export async function verifyPayment(
   order.payment.paidAt = new Date();
   order.payment.amountPaid = order.total;
 
+  // The client callback only gives us IDs, not the payment method — fetch
+  // the payment entity from Razorpay so the payment-success email (fired
+  // below via transitionOrderStatus, before the webhook typically arrives)
+  // has a method to show instead of "Not specified".
+  try {
+    const paymentEntity = await getRazorpayClient().payments.fetch(input.razorpayPaymentId);
+    order.payment.method = paymentEntity.method;
+  } catch (err) {
+    logger.error('Failed to fetch payment method from Razorpay', {
+      razorpayPaymentId: input.razorpayPaymentId,
+      error: (err as Error).message,
+    });
+  }
+
   return transitionOrderStatus(order, 'paid', { note: 'Verified via client-side callback' });
 }
 

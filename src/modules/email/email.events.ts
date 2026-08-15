@@ -14,7 +14,7 @@ import {
 } from './email.service';
 
 function orderViewUrl(orderId: string): string {
-  return `${env.APP_URL}/orders/${orderId}`;
+  return `${env.APP_URL}/account/orders/${orderId}`;
 }
 
 /**

@@ -10,11 +10,19 @@ import { restoreStock } from '../product/product.service';
 import { CreateOrderInput, ListOrdersQuery, UpdateOrderStatusInput } from './order.validation';
 import { triggerOrderConfirmationEmail, triggerOrderStatusEmail } from '../email/email.events';
 
-const FREE_SHIPPING_THRESHOLD = 999;
-const FLAT_SHIPPING_FEE = 99;
+// State-tiered shipping: cheapest for Tamil Nadu (home state), a mid tier for the
+// neighboring South Indian states, flat rate elsewhere. Keyed lowercase/trimmed so
+// casing differences between clients never fall through to the default tier.
+const SHIPPING_FEE_BY_STATE: Record<string, number> = {
+  'tamil nadu': 40,
+  kerala: 60,
+  'andhra pradesh': 60,
+  karnataka: 60,
+};
+const DEFAULT_SHIPPING_FEE = 130;
 
-function computeShippingFee(itemsTotal: number): number {
-  return itemsTotal >= FREE_SHIPPING_THRESHOLD ? 0 : FLAT_SHIPPING_FEE;
+function computeShippingFee(state: string): number {
+  return SHIPPING_FEE_BY_STATE[state.trim().toLowerCase()] ?? DEFAULT_SHIPPING_FEE;
 }
 
 function generateOrderNumber(): string {
@@ -56,7 +64,7 @@ export async function createOrderFromCart(
       }
 
       const itemsTotal = cart.items.reduce((sum, item) => sum + item.priceSnapshot * item.qty, 0);
-      const shippingFee = computeShippingFee(itemsTotal);
+      const shippingFee = computeShippingFee(input.shippingAddress.state);
       const total = itemsTotal + shippingFee;
 
       const [order] = await Order.create(
@@ -110,7 +118,11 @@ export async function getOrderByIdForUser(orderId: string, userId: string): Prom
 }
 
 export async function getOrderByIdForAdmin(orderId: string): Promise<OrderDocument> {
-  const order = await Order.findById(orderId);
+  const order = await Order.findById(orderId).populate({
+    path: 'items.product',
+    select: 'name category type',
+    populate: { path: 'category', select: 'name' },
+  });
   if (!order) {
     throw ApiError.notFound('Order not found');
   }

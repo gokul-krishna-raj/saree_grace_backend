@@ -34,7 +34,10 @@ const envSchema = z.object({
 
   EMAIL_HOST: z.string().optional(),
   EMAIL_PORT: z.coerce.number().int().positive().default(587),
-  EMAIL_SECURE: z.coerce.boolean().default(false),
+  EMAIL_SECURE: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((val) => val === 'true'),
   EMAIL_USER: z.string().optional(),
   EMAIL_PASSWORD: z.string().optional(),
   EMAIL_FROM_NAME: z.string().default('Saree Grace'),
