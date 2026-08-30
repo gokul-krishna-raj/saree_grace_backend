@@ -18,10 +18,11 @@ export function getMailTransporter(): Transporter | null {
   }
 
   if (!transporter) {
+    const isSecure = env.EMAIL_PORT === 465 ? true : env.EMAIL_SECURE;
     transporter = nodemailer.createTransport({
       host: env.EMAIL_HOST,
       port: env.EMAIL_PORT,
-      secure: env.EMAIL_SECURE,
+      secure: isSecure,
       auth: { user: env.EMAIL_USER, pass: env.EMAIL_PASSWORD },
       // nodemailer's defaults (2min connect / 10min socket) let a bad
       // network path block a request for far longer than an email is worth

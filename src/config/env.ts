@@ -35,9 +35,10 @@ const envSchema = z.object({
   EMAIL_HOST: z.string().optional(),
   EMAIL_PORT: z.coerce.number().int().positive().default(587),
   EMAIL_SECURE: z
-    .enum(['true', 'false'])
+    .string()
+    .trim()
     .default('false')
-    .transform((val) => val === 'true'),
+    .transform((val) => val.toLowerCase() === 'true'),
   EMAIL_USER: z.string().optional(),
   EMAIL_PASSWORD: z.string().optional(),
   EMAIL_FROM_NAME: z.string().default('Saree Grace'),
@@ -61,13 +62,14 @@ const envSchema = z.object({
   SEED_ADMIN_PASSWORD: z.string().optional(),
 });
 
-export type Env = Omit<z.infer<typeof envSchema>, 'SUPPORT_EMAIL'> & {
+export type Env = Omit<z.infer<typeof envSchema>, 'SUPPORT_EMAIL' | 'EMAIL_FROM_ADDRESS'> & {
   isProduction: boolean;
   isTest: boolean;
   corsOriginList: string[];
   // Always resolved to a concrete string by loadEnv() (falls back to
-  // EMAIL_FROM_ADDRESS), unlike the raw optional schema field.
+  // EMAIL_FROM_ADDRESS / EMAIL_USER), unlike the raw optional schema field.
   SUPPORT_EMAIL: string;
+  EMAIL_FROM_ADDRESS: string;
 };
 
 function loadEnv(): Env {
@@ -104,6 +106,8 @@ function loadEnv(): Env {
     }
   }
 
+  const resolvedFromAddress = data.EMAIL_FROM_ADDRESS || data.EMAIL_USER || '';
+
   return {
     ...data,
     isProduction: data.NODE_ENV === 'production',
@@ -111,9 +115,10 @@ function loadEnv(): Env {
     corsOriginList: data.CORS_ORIGINS.split(',')
       .map((origin) => origin.trim())
       .filter(Boolean),
+    EMAIL_FROM_ADDRESS: resolvedFromAddress,
     // No dedicated support inbox configured yet in most environments —
     // the sender address is a reasonable default to show customers.
-    SUPPORT_EMAIL: data.SUPPORT_EMAIL ?? data.EMAIL_FROM_ADDRESS ?? '',
+    SUPPORT_EMAIL: data.SUPPORT_EMAIL || resolvedFromAddress,
   };
 }
 

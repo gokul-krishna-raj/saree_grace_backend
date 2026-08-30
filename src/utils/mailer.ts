@@ -25,8 +25,9 @@ export async function sendEmail(to: string, subject: string, html: string): Prom
     return;
   }
 
+  const fromAddress = env.EMAIL_FROM_ADDRESS || env.EMAIL_USER || 'no-reply@sareegrace.com';
   await transporter.sendMail({
-    from: `"${env.EMAIL_FROM_NAME}" <${env.EMAIL_FROM_ADDRESS}>`,
+    from: `"${env.EMAIL_FROM_NAME}" <${fromAddress}>`,
     to,
     subject,
     html,
