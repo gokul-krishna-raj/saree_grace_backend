@@ -1,5 +1,5 @@
 import bcrypt from 'bcryptjs';
-import { randomUUID } from 'crypto';
+import crypto, { randomUUID } from 'crypto';
 import { OAuth2Client } from 'google-auth-library';
 import { User, UserDocument, UserRole } from '../../models/User';
 import { RefreshToken } from '../../models/RefreshToken';
@@ -77,17 +77,24 @@ export async function registerUser(input: {
   password: string;
 }): Promise<{ user: UserDocument }> {
   const existing = await User.findOne({ email: input.email });
-  if (existing) {
+  if (existing && existing.isVerified) {
     throw ApiError.conflict('An account with this email already exists');
   }
 
   const passwordHash = await bcrypt.hash(input.password, BCRYPT_SALT_ROUNDS);
-  const user = await User.create({
-    name: input.name,
-    email: input.email,
-    passwordHash,
-    role: 'customer',
-  });
+  let user = existing;
+  if (!user) {
+    user = await User.create({
+      name: input.name,
+      email: input.email,
+      passwordHash,
+      role: 'customer',
+    });
+  } else {
+    user.name = input.name;
+    user.passwordHash = passwordHash;
+    await user.save();
+  }
 
   await generateAndSendOtp(user.email, 'signup');
   return { user };
@@ -116,7 +123,12 @@ export async function verifyOtp(
     throw ApiError.badRequest('OTP has expired. Please request a new one.');
   }
 
-  if (record.otpHash !== hashToken(otp)) {
+  const computedHash = Buffer.from(hashToken(otp));
+  const storedHash = Buffer.from(record.otpHash);
+  if (
+    computedHash.length !== storedHash.length ||
+    !crypto.timingSafeEqual(computedHash, storedHash)
+  ) {
     record.attempts += 1;
     await record.save();
     throw invalidError();
@@ -187,8 +199,10 @@ export async function loginWithGoogle(
     throw ApiError.unauthorized('Invalid Google ID token');
   }
 
-  if (!payload?.sub || !payload.email) {
-    throw ApiError.unauthorized('Google token did not include required profile fields');
+  if (!payload?.sub || !payload.email || payload.email_verified !== true) {
+    throw ApiError.unauthorized(
+      'Google token did not include required profile fields or email is not verified',
+    );
   }
 
   let user = await User.findOne({ googleId: payload.sub });
@@ -327,6 +341,7 @@ export async function resetPassword(token: string, newPassword: string): Promise
   }
 
   user.passwordHash = await bcrypt.hash(newPassword, BCRYPT_SALT_ROUNDS);
+  user.isVerified = true;
   await user.save();
 
   record.used = true;

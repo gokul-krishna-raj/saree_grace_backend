@@ -118,11 +118,7 @@ export async function getOrderByIdForUser(orderId: string, userId: string): Prom
 }
 
 export async function getOrderByIdForAdmin(orderId: string): Promise<OrderDocument> {
-  const order = await Order.findById(orderId).populate({
-    path: 'items.product',
-    select: 'name category type',
-    populate: { path: 'category', select: 'name' },
-  });
+  const order = await Order.findById(orderId);
   if (!order) {
     throw ApiError.notFound('Order not found');
   }

@@ -46,12 +46,13 @@ describe('Auth', () => {
       expect(res.body.data.user.passwordHash).toBeUndefined();
     });
 
-    it('rejects duplicate email registration', async () => {
-      await request(app).post('/api/v1/auth/register').send({
+    it('rejects duplicate email registration for verified accounts', async () => {
+      const otp = await registerAndCaptureOtp(app, {
         name: 'Jane Doe',
         email: 'dupe@example.com',
         password: 'SuperSecret123',
       });
+      await request(app).post('/api/v1/auth/verify-otp').send({ email: 'dupe@example.com', otp });
 
       const res = await request(app).post('/api/v1/auth/register').send({
         name: 'Jane Doe 2',
@@ -61,6 +62,28 @@ describe('Auth', () => {
 
       expect(res.status).toBe(409);
       expect(res.body.success).toBe(false);
+    });
+
+    it('allows re-registration for an unverified account and re-issues an OTP', async () => {
+      await request(app).post('/api/v1/auth/register').send({
+        name: 'Jane Unverified',
+        email: 'unverified-rereg@example.com',
+        password: 'FirstPassword123',
+      });
+
+      const sendEmailSpy = jest.spyOn(mailer, 'sendEmail').mockResolvedValue(undefined);
+      const res = await request(app).post('/api/v1/auth/register').send({
+        name: 'Jane Updated',
+        email: 'unverified-rereg@example.com',
+        password: 'SecondPassword123',
+      });
+
+      expect(res.status).toBe(201);
+      expect(res.body.success).toBe(true);
+      expect(sendEmailSpy).toHaveBeenCalled();
+      const updatedUser = await User.findOne({ email: 'unverified-rereg@example.com' });
+      expect(updatedUser?.name).toBe('Jane Updated');
+      sendEmailSpy.mockRestore();
     });
 
     it('still registers the user even when the mail provider throws', async () => {
@@ -176,6 +199,7 @@ describe('Auth', () => {
         getPayload: () => ({
           sub: 'google-sub-123',
           email: 'googleuser@example.com',
+          email_verified: true,
           name: 'Google User',
         }),
       });
@@ -190,6 +214,26 @@ describe('Auth', () => {
       expect(res.status).toBe(200);
       expect(res.body.data.user.email).toBe('googleuser@example.com');
       expect(res.body.data.user.googleId).toBe('google-sub-123');
+    });
+
+    it('rejects a Google ID token when email_verified is false', async () => {
+      const mockVerifyIdToken = jest.fn().mockResolvedValue({
+        getPayload: () => ({
+          sub: 'google-sub-unverified',
+          email: 'unverifiedgoogle@example.com',
+          email_verified: false,
+          name: 'Unverified Google User',
+        }),
+      });
+      (OAuth2Client as unknown as jest.Mock).mockImplementation(() => ({
+        verifyIdToken: mockVerifyIdToken,
+      }));
+
+      const res = await request(app)
+        .post('/api/v1/auth/google')
+        .send({ idToken: 'fake-unverified-token' });
+
+      expect(res.status).toBe(401);
     });
 
     it('rejects an invalid Google ID token', async () => {
@@ -323,6 +367,39 @@ describe('Auth', () => {
         .send({ email: 'flakymail@example.com' });
 
       expect(res.status).toBe(200);
+      sendEmailSpy.mockRestore();
+    });
+
+    it('verifies an unverified account upon successful password reset', async () => {
+      await request(app).post('/api/v1/auth/register').send({
+        name: 'Reset Unverified',
+        email: 'resetunverified@example.com',
+        password: 'FirstPassword123',
+      });
+
+      const sendEmailSpy = jest.spyOn(mailer, 'sendEmail').mockResolvedValue(undefined);
+      await request(app)
+        .post('/api/v1/auth/forgot-password')
+        .send({ email: 'resetunverified@example.com' });
+
+      const resetUrlMatch = /reset-password\?token=([a-f0-9]+)/.exec(
+        (sendEmailSpy.mock.calls[0]?.[2] as string) ?? '',
+      );
+      const token = resetUrlMatch?.[1] as string;
+
+      const resetRes = await request(app)
+        .post('/api/v1/auth/reset-password')
+        .send({ token, newPassword: 'NewPassword789' });
+      expect(resetRes.status).toBe(200);
+
+      const user = await User.findOne({ email: 'resetunverified@example.com' });
+      expect(user?.isVerified).toBe(true);
+
+      const loginRes = await request(app)
+        .post('/api/v1/auth/login')
+        .send({ email: 'resetunverified@example.com', password: 'NewPassword789' });
+      expect(loginRes.status).toBe(200);
+
       sendEmailSpy.mockRestore();
     });
 

@@ -5,6 +5,7 @@ import { Category } from '../../src/models/Category';
 import { Product } from '../../src/models/Product';
 import { EmailNotification } from '../../src/models/EmailNotification';
 import * as mailer from '../../src/utils/mailer';
+import { env } from '../../src/config/env';
 
 jest.mock('razorpay');
 
@@ -18,15 +19,18 @@ const shippingAddress = {
   country: 'India',
 };
 
-function mockRazorpay(overrides: { create?: jest.Mock; refund?: jest.Mock } = {}): void {
+function mockRazorpay(
+  overrides: { create?: jest.Mock; refund?: jest.Mock; fetch?: jest.Mock } = {},
+): void {
   const create =
     overrides.create ??
     jest.fn().mockResolvedValue({ id: 'order_mockRP1', amount: 100000, currency: 'INR' });
   const refund =
     overrides.refund ?? jest.fn().mockResolvedValue({ id: 'rfnd_mock1', amount: 100000 });
+  const fetch = overrides.fetch ?? jest.fn().mockResolvedValue({ method: 'card' });
   (Razorpay as unknown as jest.Mock).mockImplementation(() => ({
     orders: { create },
-    payments: { refund },
+    payments: { refund, fetch },
   }));
 }
 
@@ -78,7 +82,7 @@ describe('Payment & refund emails', () => {
 
     const razorpayPaymentId = 'pay_mock123';
     const signature = crypto
-      .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET as string)
+      .createHmac('sha256', env.RAZORPAY_KEY_SECRET as string)
       .update(`order_mockRP1|${razorpayPaymentId}`)
       .digest('hex');
     await request(app)
@@ -204,7 +208,7 @@ describe('Payment & refund emails', () => {
 
     const razorpayPaymentId = 'pay_forRefundEmail';
     const signature = crypto
-      .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET as string)
+      .createHmac('sha256', env.RAZORPAY_KEY_SECRET as string)
       .update(`order_mockRP1|${razorpayPaymentId}`)
       .digest('hex');
     await request(app).post('/api/v1/payments/verify').set(authHeader(user.token)).send({
@@ -230,7 +234,7 @@ describe('Payment & refund emails', () => {
     };
     const { raw, signature: webhookSig } = signWebhookBody(
       webhookBody,
-      process.env.RAZORPAY_WEBHOOK_SECRET as string,
+      env.RAZORPAY_WEBHOOK_SECRET as string,
     );
     const webhookRes = await request(app)
       .post('/api/v1/payments/webhook')

@@ -17,22 +17,42 @@ import {
 
 const router = Router();
 
-router.use(authRateLimiter);
-
-router.post('/register', validate({ body: registerSchema }), authController.register);
-router.post('/verify-otp', validate({ body: verifyOtpSchema }), authController.verifyOtp);
-router.post('/resend-otp', validate({ body: resendOtpSchema }), authController.resendOtp);
-router.post('/login', validate({ body: loginSchema }), authController.login);
-router.post('/google', validate({ body: googleLoginSchema }), authController.googleLogin);
+router.post(
+  '/register',
+  authRateLimiter,
+  validate({ body: registerSchema }),
+  authController.register,
+);
+router.post(
+  '/verify-otp',
+  authRateLimiter,
+  validate({ body: verifyOtpSchema }),
+  authController.verifyOtp,
+);
+router.post(
+  '/resend-otp',
+  authRateLimiter,
+  validate({ body: resendOtpSchema }),
+  authController.resendOtp,
+);
+router.post('/login', authRateLimiter, validate({ body: loginSchema }), authController.login);
+router.post(
+  '/google',
+  authRateLimiter,
+  validate({ body: googleLoginSchema }),
+  authController.googleLogin,
+);
 router.post('/refresh', validate({ body: refreshSchema }), authController.refresh);
 router.post('/logout', validate({ body: logoutSchema }), authController.logout);
 router.post(
   '/forgot-password',
+  authRateLimiter,
   validate({ body: forgotPasswordSchema }),
   authController.forgotPassword,
 );
 router.post(
   '/reset-password',
+  authRateLimiter,
   validate({ body: resetPasswordSchema }),
   authController.resetPassword,
 );

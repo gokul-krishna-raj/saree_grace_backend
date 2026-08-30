@@ -52,6 +52,11 @@ export const listAllOrders = asyncHandler(async (req: Request, res: Response) =>
 
 export const getOrderForAdmin = asyncHandler(async (req: Request, res: Response) => {
   const order = await orderService.getOrderByIdForAdmin(req.params.id as string);
+  await order.populate({
+    path: 'items.product',
+    select: 'name category type',
+    populate: { path: 'category', select: 'name' },
+  });
   sendSuccess(res, { order });
 });
 
