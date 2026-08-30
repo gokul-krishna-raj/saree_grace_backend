@@ -1,9 +1,10 @@
 import mongoose from 'mongoose';
 import crypto from 'crypto';
-import { Cart } from '../../models/Cart';
+import { Cart, CartDocument } from '../../models/Cart';
 import { Product } from '../../models/Product';
 import { Order, OrderDocument, OrderStatus } from '../../models/Order';
 import { ApiError } from '../../utils/ApiError';
+import { logger } from '../../utils/logger';
 import { clampLimit, decodeCursor, encodeCursor } from '../../utils/pagination';
 import { assertValidTransition, STOCK_RESTORING_STATUSES } from './orderStateMachine';
 import { restoreStock } from '../product/product.service';
@@ -31,6 +32,90 @@ function generateOrderNumber(): string {
   return `SG-${time}-${random}`;
 }
 
+async function executeOrderCreation(
+  userId: string,
+  input: CreateOrderInput,
+  cart: CartDocument,
+  session?: mongoose.ClientSession,
+): Promise<OrderDocument> {
+  const sessionOpt = session ? { session } : {};
+  const reservedItems: Array<{ productId: string; variantId: string | null; qty: number }> = [];
+
+  try {
+    // Stock is reserved by decrementing it immediately and atomically per item
+    for (const item of cart.items) {
+      const variantId = item.variantId ? item.variantId.toString() : null;
+      const filter: Record<string, unknown> = variantId
+        ? { _id: item.product, 'variants._id': variantId, 'variants.stock': { $gte: item.qty } }
+        : { _id: item.product, stock: { $gte: item.qty } };
+      const update = variantId
+        ? { $inc: { 'variants.$.stock': -item.qty } }
+        : { $inc: { stock: -item.qty } };
+
+      const result = await Product.updateOne(filter, update, sessionOpt);
+      if (result.matchedCount === 0) {
+        throw ApiError.conflict(`Insufficient stock for "${item.nameSnapshot}"`);
+      }
+      reservedItems.push({
+        productId: item.product.toString(),
+        variantId,
+        qty: item.qty,
+      });
+    }
+
+    const itemsTotal = cart.items.reduce((sum, item) => sum + item.priceSnapshot * item.qty, 0);
+    const shippingFee = computeShippingFee(input.shippingAddress.state);
+    const total = itemsTotal + shippingFee;
+
+    const [order] = await Order.create(
+      [
+        {
+          orderNumber: generateOrderNumber(),
+          user: userId,
+          items: cart.items.map((item) => ({
+            product: item.product,
+            variantId: item.variantId,
+            nameSnapshot: item.nameSnapshot,
+            imageSnapshot: item.imageSnapshot,
+            priceSnapshot: item.priceSnapshot,
+            qty: item.qty,
+          })),
+          shippingAddress: input.shippingAddress,
+          itemsTotal,
+          shippingFee,
+          total,
+          status: 'pending',
+          statusHistory: [{ status: 'pending', changedAt: new Date() }],
+        },
+      ],
+      sessionOpt,
+    );
+
+    cart.items = [] as typeof cart.items;
+    await cart.save(sessionOpt);
+
+    return order as OrderDocument;
+  } catch (err) {
+    // If not running in a transaction session and an error occurs after partial reservations,
+    // compensate by rolling back reserved stock
+    if (!session && reservedItems.length > 0) {
+      for (const res of reservedItems) {
+        try {
+          await restoreStock(res.productId, res.variantId, res.qty);
+        } catch (restoreErr) {
+          logger.error('Failed to restore stock during order creation rollback', {
+            productId: res.productId,
+            variantId: res.variantId,
+            qty: res.qty,
+            error: (restoreErr as Error).message,
+          });
+        }
+      }
+    }
+    throw err;
+  }
+}
+
 export async function createOrderFromCart(
   userId: string,
   input: CreateOrderInput,
@@ -40,63 +125,36 @@ export async function createOrderFromCart(
     throw ApiError.badRequest('Cart is empty');
   }
 
-  const session = await mongoose.startSession();
   let createdOrder: OrderDocument | null = null;
+  let session: mongoose.ClientSession | null = null;
 
   try {
+    session = await mongoose.startSession();
     await session.withTransaction(async () => {
-      // Stock is reserved by decrementing it immediately and atomically per
-      // item, inside the transaction — if any item is short on stock the
-      // whole transaction aborts and nothing is decremented.
-      for (const item of cart.items) {
-        const variantId = item.variantId ? item.variantId.toString() : null;
-        const filter: Record<string, unknown> = variantId
-          ? { _id: item.product, 'variants._id': variantId, 'variants.stock': { $gte: item.qty } }
-          : { _id: item.product, stock: { $gte: item.qty } };
-        const update = variantId
-          ? { $inc: { 'variants.$.stock': -item.qty } }
-          : { $inc: { stock: -item.qty } };
-
-        const result = await Product.updateOne(filter, update, { session });
-        if (result.matchedCount === 0) {
-          throw ApiError.conflict(`Insufficient stock for "${item.nameSnapshot}"`);
-        }
-      }
-
-      const itemsTotal = cart.items.reduce((sum, item) => sum + item.priceSnapshot * item.qty, 0);
-      const shippingFee = computeShippingFee(input.shippingAddress.state);
-      const total = itemsTotal + shippingFee;
-
-      const [order] = await Order.create(
-        [
-          {
-            orderNumber: generateOrderNumber(),
-            user: userId,
-            items: cart.items.map((item) => ({
-              product: item.product,
-              variantId: item.variantId,
-              nameSnapshot: item.nameSnapshot,
-              imageSnapshot: item.imageSnapshot,
-              priceSnapshot: item.priceSnapshot,
-              qty: item.qty,
-            })),
-            shippingAddress: input.shippingAddress,
-            itemsTotal,
-            shippingFee,
-            total,
-            status: 'pending',
-            statusHistory: [{ status: 'pending', changedAt: new Date() }],
-          },
-        ],
-        { session },
-      );
-      createdOrder = order as OrderDocument;
-
-      cart.items = [] as typeof cart.items;
-      await cart.save({ session });
+      createdOrder = await executeOrderCreation(userId, input, cart, session!);
     });
+  } catch (err: unknown) {
+    // If running against a standalone MongoDB instance (without replica set enabled),
+    // session.withTransaction fails with code 20 or message containing replica set / standalone.
+    const isTxnUnsupported =
+      err instanceof Error &&
+      (err.message.includes('replica set') ||
+        err.message.includes('Transactions are not supported') ||
+        err.message.includes('Transaction numbers are only allowed') ||
+        (err as { code?: number }).code === 20);
+
+    if (isTxnUnsupported) {
+      logger.warn(
+        'MongoDB transactions not supported by deployment; executing order creation with atomic updates and compensatory rollback',
+      );
+      createdOrder = await executeOrderCreation(userId, input, cart);
+    } else {
+      throw err;
+    }
   } finally {
-    await session.endSession();
+    if (session) {
+      await session.endSession();
+    }
   }
 
   if (!createdOrder) {

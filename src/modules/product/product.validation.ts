@@ -77,6 +77,23 @@ export const createProductSchema = z.discriminatedUnion('type', [
   createVariantShellProductSchema,
 ]);
 
+const removeImagePublicIdsSchema = z
+  .union([z.array(z.string()), z.string()])
+  .transform((v) => {
+    if (Array.isArray(v)) return v;
+    if (typeof v === 'string') {
+      try {
+        const parsed = JSON.parse(v);
+        if (Array.isArray(parsed)) return parsed.map(String);
+      } catch {
+        // Fallback for single raw public ID string
+      }
+      return [v];
+    }
+    return [];
+  })
+  .optional();
+
 export const updateProductSchema = z.object({
   name: z.string().trim().min(2).max(200).optional(),
   description: z.string().trim().min(1).max(5000).optional(),
@@ -90,10 +107,7 @@ export const updateProductSchema = z.object({
   stock: z.coerce.number().int().min(0).optional(),
   sku: z.string().trim().toUpperCase().optional(),
   isActive: coercedBool.optional(),
-  removeImagePublicIds: z
-    .union([z.array(z.string()), z.string()])
-    .transform((v) => (Array.isArray(v) ? v : [v]))
-    .optional(),
+  removeImagePublicIds: removeImagePublicIdsSchema,
 });
 
 const HEX_COLOR_RE = /^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/;
@@ -105,7 +119,14 @@ const HEX_COLOR_RE = /^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/;
 const variantAttributesSchema = z
   .union([z.record(z.string()), z.string()])
   .transform((v) => (typeof v === 'string' ? (JSON.parse(v) as Record<string, string>) : v))
-  .refine((attrs) => attrs.colorCode === undefined || HEX_COLOR_RE.test(attrs.colorCode), {
+  .transform((attrs) => {
+    if (attrs.colorCode !== undefined && attrs.colorCode.trim() === '') {
+      const { colorCode: _, ...rest } = attrs;
+      return rest;
+    }
+    return attrs;
+  })
+  .refine((attrs) => attrs.colorCode === undefined || HEX_COLOR_RE.test(attrs.colorCode.trim()), {
     message: 'colorCode must be a valid hex color (e.g. #800000 or #f00)',
   });
 
@@ -124,10 +145,7 @@ export const updateVariantSchema = z.object({
   compareAtPrice: z.coerce.number().positive().optional(),
   stock: z.coerce.number().int().min(0).optional(),
   isActive: coercedBool.optional(),
-  removeImagePublicIds: z
-    .union([z.array(z.string()), z.string()])
-    .transform((v) => (Array.isArray(v) ? v : [v]))
-    .optional(),
+  removeImagePublicIds: removeImagePublicIdsSchema,
 });
 
 export const productIdParamSchema = z.object({ id: objectId });
@@ -146,6 +164,10 @@ export const listProductsQuerySchema = z.object({
   minPrice: z.coerce.number().nonnegative().optional(),
   maxPrice: z.coerce.number().nonnegative().optional(),
   loomType: loomType.optional(),
+  handloomOnly: z
+    .union([z.boolean(), z.enum(['true', 'false'])])
+    .optional()
+    .transform((v) => (v === true || v === 'true' ? true : undefined)),
   inStockOnly: z
     .enum(['true', 'false'])
     .optional()

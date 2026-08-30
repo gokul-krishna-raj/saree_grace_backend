@@ -7,29 +7,15 @@ useDotenv: true
 provider:
   name: aws
   runtime: nodejs20.x
+  architecture: arm64
   region: ${opt:region, 'ap-south-1'}
   stage: ${opt:stage, 'dev'}
   memorySize: 512
   timeout: 25
   logRetentionInDays: 30
-  # Without this, API Gateway treats an incoming multipart/form-data body
-  # (product image uploads) as UTF-8 text by default — image bytes aren't
-  # valid UTF-8, so uploads risk silent corruption on the way to Lambda even
-  # when well under the size limit. This tells API Gateway to base64-encode
-  # matching request bodies (and set `isBase64Encoded` on the Lambda event),
-  # which serverless-http already decodes back to a Buffer automatically.
   apiGateway:
     binaryMediaTypes:
       - 'multipart/form-data'
-  # HTTPS is enforced automatically: API Gateway's default execute-api
-  # endpoint only ever serves HTTPS (plain HTTP requests are rejected at the
-  # edge) — see docs/deployment.md for the custom-domain + ACM cert setup
-  # used in staging/prod.
-  # Referenced directly from process.env / .env.<stage> (loaded by useDotenv)
-  # rather than indirected through `custom` — a Serverless Framework
-  # variable fallback (`, 'default'`) only fires on `undefined`, and an
-  # extra indirection layer turns "unset" into "empty string", which is
-  # defined and therefore defeats the fallback. Keep it a single hop.
   environment:
     NODE_ENV: ${env:NODE_ENV, 'production'}
     API_BASE_PATH: ${env:API_BASE_PATH, '/api/v1'}
@@ -77,13 +63,6 @@ provider:
             - logs:PutLogEvents
           Resource: 'arn:aws:logs:*:*:*'
 
-# Per-stage secrets are NEVER committed. They're pulled from AWS SSM
-# Parameter Store (SecureString) per stage, e.g.
-#   /saree-grace/${stage}/MONGODB_URI
-#   /saree-grace/${stage}/JWT_ACCESS_SECRET
-# For local `sls deploy`, populate a `.env.<stage>` (gitignored) instead —
-# useDotenv above loads `.env.${stage}` automatically when `--stage <stage>`
-# is passed, falling back to `.env`.
 custom:
   serverless-offline:
     httpPort: 4000
@@ -95,11 +74,19 @@ plugins:
 package:
   individually: false
   patterns:
+    - '!src/**'
     - '!tests/**'
     - '!scripts/**'
+    - '!docs/**'
     - '!coverage/**'
+    - '!.github/**'
+    - '!.husky/**'
     - '!*.md'
     - '!.env*'
+    - '!tsconfig*.json'
+    - '!eslint*'
+    - '!jest*'
+    - '!.prettier*'
 
 functions:
   api:
@@ -117,13 +104,4 @@ functions:
     handler: dist/jobs/abandonedCartHandler.handler
     timeout: 60
     events:
-      # Hourly, so a cart never waits much past ABANDONED_CART_DELAY_HOURS
-      # before its one reminder goes out.
       - schedule: rate(1 hour)
-
-resources:
-  Conditions:
-    IsProd:
-      Fn::Equals:
-        - ${self:provider.stage}
-        - prod

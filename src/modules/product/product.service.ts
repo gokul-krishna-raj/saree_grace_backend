@@ -98,6 +98,36 @@ function assertNoDuplicateAttributes(
   }
 }
 
+async function assertSkuAvailable(
+  sku: string,
+  excludeProductId?: string,
+  excludeVariantId?: string,
+): Promise<void> {
+  const upperSku = sku.toUpperCase();
+  const simpleMatch = await Product.findOne({
+    sku: upperSku,
+    ...(excludeProductId ? { _id: { $ne: excludeProductId } } : {}),
+  });
+  if (simpleMatch) {
+    throw ApiError.conflict(`SKU already in use: ${sku}`);
+  }
+
+  const variantMatch = await Product.findOne({
+    'variants.sku': upperSku,
+  });
+  if (variantMatch) {
+    if (variantMatch._id.toString() !== excludeProductId) {
+      throw ApiError.conflict(`SKU already in use: ${sku}`);
+    }
+    const duplicateVariant = variantMatch.variants.some(
+      (v) => v.sku === upperSku && v._id.toString() !== excludeVariantId,
+    );
+    if (duplicateVariant) {
+      throw ApiError.conflict(`SKU already in use: ${sku}`);
+    }
+  }
+}
+
 export async function createSimpleProduct(
   input: CreateSimpleProductInput,
   files: Express.Multer.File[],
@@ -105,10 +135,7 @@ export async function createSimpleProduct(
   await assertCategoryExists(input.category);
   await assertOccasionsExist(input.occasions ?? []);
   if (input.sku) {
-    const skuTaken = await Product.findOne({ sku: input.sku });
-    if (skuTaken) {
-      throw ApiError.conflict(`SKU already in use: ${input.sku}`);
-    }
+    await assertSkuAvailable(input.sku);
   }
 
   const slug = await generateUniqueProductSlug(input.name);
@@ -192,10 +219,7 @@ export async function updateProduct(
     if (input.compareAtPrice !== undefined) product.compareAtPrice = input.compareAtPrice;
     if (input.stock !== undefined) product.stock = input.stock;
     if (input.sku !== undefined && input.sku !== product.sku) {
-      const skuTaken = await Product.findOne({ sku: input.sku, _id: { $ne: id } });
-      if (skuTaken) {
-        throw ApiError.conflict(`SKU already in use: ${input.sku}`);
-      }
+      await assertSkuAvailable(input.sku, id);
       product.sku = input.sku;
     }
   }
@@ -236,10 +260,7 @@ export async function addVariant(
     throw ApiError.badRequest('Cannot add variants to a simple product');
   }
 
-  const skuTaken = await Product.findOne({ 'variants.sku': input.sku });
-  if (skuTaken) {
-    throw ApiError.conflict(`SKU already in use: ${input.sku}`);
-  }
+  await assertSkuAvailable(input.sku, productId);
   assertNoDuplicateAttributes(product, input.attributes);
 
   const images = files.length > 0 ? await uploadAll(files) : [];
@@ -272,13 +293,7 @@ export async function updateVariant(
   }
 
   if (input.sku !== undefined && input.sku !== variant.sku) {
-    const skuTaken = await Product.findOne({
-      'variants.sku': input.sku,
-      _id: { $ne: productId },
-    });
-    if (skuTaken) {
-      throw ApiError.conflict(`SKU already in use: ${input.sku}`);
-    }
+    await assertSkuAvailable(input.sku, productId, variantId);
     variant.sku = input.sku;
   }
   if (input.attributes !== undefined) {
@@ -359,7 +374,11 @@ export async function listProducts(query: ListProductsQuery): Promise<ProductLis
   }
   if (query.fabric) filter.fabric = query.fabric;
   if (query.color) filter.color = query.color;
-  if (query.loomType) filter.loomType = query.loomType;
+  if (query.loomType) {
+    filter.loomType = query.loomType;
+  } else if (query.handloomOnly) {
+    filter.loomType = 'handloom';
+  }
 
   if (query.minPrice !== undefined || query.maxPrice !== undefined) {
     const priceFilter: Record<string, number> = {};

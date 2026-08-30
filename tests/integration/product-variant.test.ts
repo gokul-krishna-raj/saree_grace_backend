@@ -1,4 +1,4 @@
-import { request, buildApp, createAdmin } from '../helpers';
+import { request, buildApp, createAdmin, createUser, authHeader } from '../helpers';
 import { Category } from '../../src/models/Category';
 import { Product } from '../../src/models/Product';
 import { deleteCloudinaryImages } from '../../src/utils/cloudinaryUpload';
@@ -295,5 +295,139 @@ describe('Variant products (admin)', () => {
     expect(deleteRes.status).toBe(200);
     expect(deleteRes.body.data.product.variants).toHaveLength(0);
     expect(deleteCloudinaryImages).toHaveBeenCalledWith([publicId]);
+  });
+
+  it('rejects cross-type duplicate SKU (simple product SKU matching variant SKU)', async () => {
+    const admin = await createAdmin();
+    const categoryId = await makeCategory();
+    const productId = await createShell(admin, categoryId);
+
+    await request(app)
+      .post(`/api/v1/admin/products/${productId}/variants`)
+      .set('Authorization', `Bearer ${admin.token}`)
+      .field('sku', 'GLOBAL-SKU-1')
+      .field('attributes', JSON.stringify({ color: 'red' }))
+      .field('price', '1000')
+      .field('stock', '5');
+
+    // Attempt to create simple product with the same SKU
+    const simpleRes = await request(app)
+      .post('/api/v1/admin/products')
+      .set('Authorization', `Bearer ${admin.token}`)
+      .field('type', 'simple')
+      .field('name', 'Conflict Saree')
+      .field('description', 'desc')
+      .field('category', categoryId)
+      .field('sku', 'global-sku-1')
+      .field('price', '2000')
+      .field('stock', '3');
+
+    expect(simpleRes.status).toBe(409);
+  });
+});
+
+describe('Variant products (storefront, cart, and checkout flow)', () => {
+  const app = buildApp();
+  const shippingAddress = {
+    fullName: 'Test Customer',
+    phone: '9876543210',
+    line1: '123 Main St',
+    city: 'Chennai',
+    state: 'Tamil Nadu',
+    postalCode: '600001',
+    country: 'India',
+  };
+
+  it('adds variant to cart, validates stock, and captures authoritative snapshot', async () => {
+    const admin = await createAdmin();
+    const user = await createUser();
+    const categoryId = await makeCategory();
+
+    const createShellRes = await request(app)
+      .post('/api/v1/admin/products')
+      .set('Authorization', `Bearer ${admin.token}`)
+      .field('type', 'variant')
+      .field('name', 'Kanjivaram Silk Saree')
+      .field('description', 'Authentic silk saree')
+      .field('category', categoryId)
+      .field('variantAttributeNames', 'color');
+
+    const productId = createShellRes.body.data.product._id;
+
+    const addVarRes = await request(app)
+      .post(`/api/v1/admin/products/${productId}/variants`)
+      .set('Authorization', `Bearer ${admin.token}`)
+      .field('sku', 'KS-RED')
+      .field('attributes', JSON.stringify({ color: 'Crimson Red' }))
+      .field('price', '4500')
+      .field('stock', '5')
+      .attach('images', fakeImage, { filename: 'red.jpg', contentType: 'image/jpeg' });
+
+    const variantId = addVarRes.body.data.product.variants[0]._id;
+
+    // 1. Missing variantId for variant product -> 400
+    const missingVarRes = await request(app)
+      .post('/api/v1/cart')
+      .set(authHeader(user.token))
+      .send({ productId, qty: 1 });
+    expect(missingVarRes.status).toBe(400);
+
+    // 2. Non-existent variantId -> 404
+    const invalidVarRes = await request(app)
+      .post('/api/v1/cart')
+      .set(authHeader(user.token))
+      .send({ productId, variantId: '600000000000000000000001', qty: 1 });
+    expect(invalidVarRes.status).toBe(404);
+
+    // 3. Exceeds stock -> 409
+    const overStockRes = await request(app)
+      .post('/api/v1/cart')
+      .set(authHeader(user.token))
+      .send({ productId, variantId, qty: 10 });
+    expect(overStockRes.status).toBe(409);
+
+    // 4. Valid add to cart
+    const addCartRes = await request(app)
+      .post('/api/v1/cart')
+      .set(authHeader(user.token))
+      .send({ productId, variantId, qty: 2 });
+    expect(addCartRes.status).toBe(201);
+    const cartItem = addCartRes.body.data.cart.items[0];
+    expect(cartItem.product).toBe(productId);
+    expect(cartItem.variantId).toBe(variantId);
+    expect(cartItem.qty).toBe(2);
+    expect(cartItem.priceSnapshot).toBe(4500);
+    expect(cartItem.nameSnapshot).toBe('Kanjivaram Silk Saree');
+    expect(cartItem.imageSnapshot).toBeDefined();
+
+    // 5. Checkout order decrements variant stock
+    const orderRes = await request(app)
+      .post('/api/v1/orders')
+      .set(authHeader(user.token))
+      .send({ shippingAddress });
+    expect(orderRes.status).toBe(201);
+    const order = orderRes.body.data.order;
+    expect(order.items[0].variantId).toBe(variantId);
+    expect(order.items[0].priceSnapshot).toBe(4500);
+    expect(order.itemsTotal).toBe(9000);
+
+    // Verify database stock was decremented for the variant
+    const productAfterOrder = await Product.findById(productId);
+    const variantAfterOrder = productAfterOrder?.variants.find(
+      (v) => v._id.toString() === variantId,
+    );
+    expect(variantAfterOrder?.stock).toBe(3);
+
+    // 6. Cancel order restores variant stock
+    const cancelRes = await request(app)
+      .post(`/api/v1/orders/${order._id}/cancel`)
+      .set(authHeader(user.token));
+    expect(cancelRes.status).toBe(200);
+
+    const productAfterCancel = await Product.findById(productId);
+    const variantAfterCancel = productAfterCancel?.variants.find(
+      (v) => v._id.toString() === variantId,
+    );
+    expect(variantAfterCancel?.stock).toBe(5);
   });
 });

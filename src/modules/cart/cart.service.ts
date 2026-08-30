@@ -31,7 +31,10 @@ async function resolveProductAndVariant(
     return {
       price: variant.price,
       name: product.name,
-      image: variant.images[0]?.url ?? product.images[0]?.url,
+      image:
+        variant.images[0]?.url ??
+        product.images[0]?.url ??
+        product.variants.flatMap((v) => v.images)[0]?.url,
       stock: variant.stock,
     };
   }
@@ -39,7 +42,7 @@ async function resolveProductAndVariant(
   return {
     price: product.price ?? 0,
     name: product.name,
-    image: product.images[0]?.url,
+    image: product.images[0]?.url ?? product.variants.flatMap((v) => v.images)[0]?.url,
     stock: product.stock ?? 0,
   };
 }
