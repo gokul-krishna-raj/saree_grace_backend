@@ -19,8 +19,20 @@ export const handler: Handler = async (event, context) => {
   } catch (error) {
     logger.error('Failed to connect to MongoDB in Lambda handler', {
       error: (error as Error).message,
+      stack: (error as Error).stack,
     });
-    throw error;
+    return {
+      statusCode: 500,
+      headers: {
+        'content-type': 'application/json',
+        'access-control-allow-origin': '*',
+      },
+      body: JSON.stringify({
+        success: false,
+        message: 'Database connection failed',
+        error: (error as Error).message,
+      }),
+    };
   }
 
   return serverlessHandler(event, context);
