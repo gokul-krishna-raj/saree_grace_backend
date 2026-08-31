@@ -16,7 +16,7 @@ const ALLOWED_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'im
 // under this), tight for an unedited phone photo — client-side compression
 // before upload is expected.
 const MAX_FILE_SIZE_BYTES = 800 * 1024; // 800KB
-const MAX_FILES = 10;
+const MAX_FILES = 50;
 
 /**
  * Memory storage only — buffers are streamed straight to Cloudinary and

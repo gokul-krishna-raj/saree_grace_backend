@@ -430,4 +430,401 @@ describe('Variant products (storefront, cart, and checkout flow)', () => {
     );
     expect(variantAfterCancel?.stock).toBe(5);
   });
+
+  it('creates a variant product on a single page with multiple variants and per-variant images', async () => {
+    const admin = await createAdmin();
+    const categoryId = await makeCategory();
+
+    const variantsPayload = [
+      {
+        sku: 'SP-MAROON',
+        attributes: { color: 'Maroon', colorCode: '#800000' },
+        price: 3999,
+        stock: 10,
+      },
+      {
+        sku: 'SP-GOLD',
+        attributes: { color: 'Gold', colorCode: '#D4AF37' },
+        price: 4299,
+        stock: 5,
+      },
+    ];
+
+    const res = await request(app)
+      .post('/api/v1/admin/products')
+      .set('Authorization', `Bearer ${admin.token}`)
+      .field('type', 'variant')
+      .field('name', 'Single Page Luxury Saree')
+      .field('description', 'Single page creation test description')
+      .field('category', categoryId)
+      .field('variantAttributeNames', 'color,colorCode')
+      .field('variants', JSON.stringify(variantsPayload))
+      .attach('variant_image_0', fakeImage, { filename: 'maroon.jpg', contentType: 'image/jpeg' })
+      .attach('variant_image_1', fakeImage, { filename: 'gold.jpg', contentType: 'image/jpeg' });
+
+    expect(res.status).toBe(201);
+    const product = res.body.data.product;
+    expect(product.type).toBe('variant');
+    expect(product.variants).toHaveLength(2);
+    expect(product.variants[0].sku).toBe('SP-MAROON');
+    expect(product.variants[0].images).toHaveLength(1);
+    expect(product.variants[1].sku).toBe('SP-GOLD');
+    expect(product.variants[1].images).toHaveLength(1);
+    expect(product.startingPrice).toBe(3999);
+    expect(product.maxPrice).toBe(4299);
+  });
+
+  it('rejects creating a variant product if any variant is missing an image', async () => {
+    const admin = await createAdmin();
+    const categoryId = await makeCategory();
+
+    const variantsPayload = [
+      {
+        sku: 'NOIMG-1',
+        attributes: { color: 'Red' },
+        price: 2000,
+        stock: 10,
+      },
+      {
+        sku: 'NOIMG-2',
+        attributes: { color: 'Blue' },
+        price: 2200,
+        stock: 5,
+      },
+    ];
+
+    // Only attach image for variant 0, leaving variant 1 with no image
+    const res = await request(app)
+      .post('/api/v1/admin/products')
+      .set('Authorization', `Bearer ${admin.token}`)
+      .field('type', 'variant')
+      .field('name', 'No Image Saree')
+      .field('description', 'desc')
+      .field('category', categoryId)
+      .field('variantAttributeNames', 'color')
+      .field('variants', JSON.stringify(variantsPayload))
+      .attach('variant_image_0', fakeImage, { filename: 'red.jpg', contentType: 'image/jpeg' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toMatch(/must have at least one image/i);
+  });
+
+  it('updates a variant product on a single page, adding new images and variants atomically', async () => {
+    const admin = await createAdmin();
+    const categoryId = await makeCategory();
+
+    // Create initial variant product with 1 variant
+    const createRes = await request(app)
+      .post('/api/v1/admin/products')
+      .set('Authorization', `Bearer ${admin.token}`)
+      .field('type', 'variant')
+      .field('name', 'Editable Saree')
+      .field('description', 'desc')
+      .field('category', categoryId)
+      .field('variantAttributeNames', 'color')
+      .field(
+        'variants',
+        JSON.stringify([{ sku: 'INIT-1', attributes: { color: 'Teal' }, price: 2500, stock: 4 }]),
+      )
+      .attach('variant_image_0', fakeImage, { filename: 'teal.jpg', contentType: 'image/jpeg' });
+
+    expect(createRes.status).toBe(201);
+    const initialProduct = createRes.body.data.product;
+    const variant1Id = initialProduct.variants[0]._id;
+
+    // Single-page update: update variant 1 (new price), and add new variant 2
+    const updateVariants = [
+      {
+        _id: variant1Id,
+        sku: 'INIT-1-UPDATED',
+        attributes: { color: 'Teal' },
+        price: 2700,
+        stock: 8,
+      },
+      {
+        sku: 'INIT-2-NEW',
+        attributes: { color: 'Pink' },
+        price: 2900,
+        stock: 3,
+      },
+    ];
+
+    const updateRes = await request(app)
+      .put(`/api/v1/admin/products/${initialProduct._id}`)
+      .set('Authorization', `Bearer ${admin.token}`)
+      .field('name', 'Editable Saree Renamed')
+      .field('variants', JSON.stringify(updateVariants))
+      .attach('variant_image_1', fakeImage, { filename: 'pink.jpg', contentType: 'image/jpeg' });
+
+    expect(updateRes.status).toBe(200);
+    const updated = updateRes.body.data.product;
+    expect(updated.name).toBe('Editable Saree Renamed');
+    expect(updated.variants).toHaveLength(2);
+    expect(updated.variants[0].sku).toBe('INIT-1-UPDATED');
+    expect(updated.variants[0].price).toBe(2700);
+    expect(updated.variants[0].stock).toBe(8);
+    expect(updated.variants[0].images).toHaveLength(1); // Retained existing image
+    expect(updated.variants[1].sku).toBe('INIT-2-NEW');
+    expect(updated.variants[1].images).toHaveLength(1); // Uploaded new image
+  });
+
+  it('rejects updating if any variant ends up with 0 images', async () => {
+    const admin = await createAdmin();
+    const categoryId = await makeCategory();
+
+    const createRes = await request(app)
+      .post('/api/v1/admin/products')
+      .set('Authorization', `Bearer ${admin.token}`)
+      .field('type', 'variant')
+      .field('name', 'Remove Image Saree')
+      .field('description', 'desc')
+      .field('category', categoryId)
+      .field('variantAttributeNames', 'color')
+      .field(
+        'variants',
+        JSON.stringify([{ sku: 'REM-1', attributes: { color: 'Purple' }, price: 3000, stock: 2 }]),
+      )
+      .attach('variant_image_0', fakeImage, { filename: 'purple.jpg', contentType: 'image/jpeg' });
+
+    const initialProduct = createRes.body.data.product;
+    const variantId = initialProduct.variants[0]._id;
+    const publicId = initialProduct.variants[0].images[0].publicId;
+
+    // Try to update by removing the only image without adding a new one
+    const updateRes = await request(app)
+      .put(`/api/v1/admin/products/${initialProduct._id}`)
+      .set('Authorization', `Bearer ${admin.token}`)
+      .field(
+        'variants',
+        JSON.stringify([
+          {
+            _id: variantId,
+            sku: 'REM-1',
+            attributes: { color: 'Purple' },
+            price: 3000,
+            stock: 2,
+            removeImagePublicIds: [publicId],
+          },
+        ]),
+      );
+
+    expect(updateRes.status).toBe(400);
+    expect(updateRes.body.error.message).toMatch(/must have at least one image/i);
+  });
+
+  describe('Comprehensive Variant Stock Management & Isolation', () => {
+    it('maintains independent stock per variant and rejects overselling even if sibling variant has stock', async () => {
+      const admin = await createAdmin();
+      const user = await createUser();
+      const categoryId = await makeCategory();
+
+      // 1. Create a variant product with Variant A (stock 10) and Variant B (stock 5)
+      const variantsPayload = [
+        {
+          sku: 'VAR-STOCK-A',
+          attributes: { color: 'Royal Blue' },
+          price: 3500,
+          stock: 10,
+        },
+        {
+          sku: 'VAR-STOCK-B',
+          attributes: { color: 'Emerald Green' },
+          price: 3800,
+          stock: 5,
+        },
+      ];
+
+      const createRes = await request(app)
+        .post('/api/v1/admin/products')
+        .set('Authorization', `Bearer ${admin.token}`)
+        .field('type', 'variant')
+        .field('name', 'Kanchipuram Silk Contrast Saree')
+        .field('description', 'Authentic weave')
+        .field('category', categoryId)
+        .field('variantAttributeNames', 'color')
+        .field('variants', JSON.stringify(variantsPayload))
+        .attach('variant_image_0', fakeImage, { filename: 'blue.jpg', contentType: 'image/jpeg' })
+        .attach('variant_image_1', fakeImage, { filename: 'green.jpg', contentType: 'image/jpeg' });
+
+      expect(createRes.status).toBe(201);
+      const product = createRes.body.data.product;
+      const productId = product._id;
+      const variantAId = product.variants[0]._id;
+      const variantBId = product.variants[1]._id;
+
+      const shippingAddress = {
+        fullName: 'Test Customer',
+        phone: '9876543210',
+        line1: '123 Main St',
+        city: 'Chennai',
+        state: 'Tamil Nadu',
+        postalCode: '600001',
+        country: 'India',
+      };
+
+      // 2. Purchase Variant A quantity 2 -> Variant A = 8, Variant B = 5
+      await request(app)
+        .post('/api/v1/cart')
+        .set(authHeader(user.token))
+        .send({ productId, variantId: variantAId, qty: 2 });
+
+      const order1Res = await request(app)
+        .post('/api/v1/orders')
+        .set(authHeader(user.token))
+        .send({ shippingAddress });
+
+      expect(order1Res.status).toBe(201);
+      expect(order1Res.body.data.order.items[0].skuSnapshot).toBe('VAR-STOCK-A');
+      expect(order1Res.body.data.order.items[0].variantId).toBe(variantAId);
+
+      let p = await Product.findById(productId);
+      expect(p?.variants.find((v) => v._id.toString() === variantAId)?.stock).toBe(8);
+      expect(p?.variants.find((v) => v._id.toString() === variantBId)?.stock).toBe(5);
+
+      // 3. Purchase Variant B quantity 3 -> Variant A = 8, Variant B = 2
+      await request(app)
+        .post('/api/v1/cart')
+        .set(authHeader(user.token))
+        .send({ productId, variantId: variantBId, qty: 3 });
+
+      const order2Res = await request(app)
+        .post('/api/v1/orders')
+        .set(authHeader(user.token))
+        .send({ shippingAddress });
+
+      expect(order2Res.status).toBe(201);
+      expect(order2Res.body.data.order.items[0].skuSnapshot).toBe('VAR-STOCK-B');
+      expect(order2Res.body.data.order.items[0].variantId).toBe(variantBId);
+
+      p = await Product.findById(productId);
+      expect(p?.variants.find((v) => v._id.toString() === variantAId)?.stock).toBe(8);
+      expect(p?.variants.find((v) => v._id.toString() === variantBId)?.stock).toBe(2);
+
+      // 4. Attempt to purchase Variant A quantity 9 -> must fail because only 8 are available
+      // First try adding 9 to cart -> should be rejected by cart stock check
+      const overCartRes = await request(app)
+        .post('/api/v1/cart')
+        .set(authHeader(user.token))
+        .send({ productId, variantId: variantAId, qty: 9 });
+      expect(overCartRes.status).toBe(409);
+
+      // Add valid qty 8 to cart, then artificially change stock in db to test order-time rejection
+      await request(app)
+        .post('/api/v1/cart')
+        .set(authHeader(user.token))
+        .send({ productId, variantId: variantAId, qty: 8 });
+
+      // Directly set stock to 7 in db to simulate concurrent purchase
+      await Product.updateOne(
+        { _id: productId, 'variants._id': variantAId },
+        { $set: { 'variants.$.stock': 7 } },
+      );
+
+      const overOrderRes = await request(app)
+        .post('/api/v1/orders')
+        .set(authHeader(user.token))
+        .send({ shippingAddress });
+
+      expect(overOrderRes.status).toBe(409);
+      expect(overOrderRes.body.error.message).toMatch(/insufficient stock/i);
+
+      // Verify stock remained unchanged at 7 for A and 2 for B
+      p = await Product.findById(productId);
+      expect(p?.variants.find((v) => v._id.toString() === variantAId)?.stock).toBe(7);
+      expect(p?.variants.find((v) => v._id.toString() === variantBId)?.stock).toBe(2);
+
+      // 5. Edit Variant A stock from admin to 20 -> verify DB and admin response show 20
+      const editVariants = [
+        {
+          _id: variantAId,
+          sku: 'VAR-STOCK-A',
+          attributes: { color: 'Royal Blue' },
+          price: 3500,
+          stock: 20,
+        },
+        {
+          _id: variantBId,
+          sku: 'VAR-STOCK-B',
+          attributes: { color: 'Emerald Green' },
+          price: 3800,
+          stock: 2,
+        },
+      ];
+
+      const editRes = await request(app)
+        .put(`/api/v1/admin/products/${productId}`)
+        .set('Authorization', `Bearer ${admin.token}`)
+        .field('variants', JSON.stringify(editVariants));
+
+      expect(editRes.status).toBe(200);
+      const updatedP = editRes.body.data.product;
+      expect(
+        updatedP.variants.find((v: { _id: string }) => v._id.toString() === variantAId)?.stock,
+      ).toBe(20);
+      expect(
+        updatedP.variants.find((v: { _id: string }) => v._id.toString() === variantBId)?.stock,
+      ).toBe(2);
+
+      // Verify direct database query also confirms stock 20 and 2
+      p = await Product.findById(productId);
+      expect(p?.variants.find((v) => v._id.toString() === variantAId)?.stock).toBe(20);
+      expect(p?.variants.find((v) => v._id.toString() === variantBId)?.stock).toBe(2);
+    });
+
+    it('preserves simple product stock deduction and restoration without regressions', async () => {
+      const admin = await createAdmin();
+      const user = await createUser();
+      const categoryId = await makeCategory();
+
+      const createRes = await request(app)
+        .post('/api/v1/admin/products')
+        .set('Authorization', `Bearer ${admin.token}`)
+        .field('type', 'simple')
+        .field('name', 'Simple Cotton Saree')
+        .field('description', 'Cotton saree')
+        .field('category', categoryId)
+        .field('price', '1500')
+        .field('stock', '10')
+        .field('sku', 'SMP-COTTON-01')
+        .attach('images', fakeImage, { filename: 'cotton.jpg', contentType: 'image/jpeg' });
+
+      expect(createRes.status).toBe(201);
+      const productId = createRes.body.data.product._id;
+
+      // Add to cart and checkout
+      await request(app)
+        .post('/api/v1/cart')
+        .set(authHeader(user.token))
+        .send({ productId, qty: 4 });
+
+      const orderRes = await request(app)
+        .post('/api/v1/orders')
+        .set(authHeader(user.token))
+        .send({
+          shippingAddress: {
+            fullName: 'Test Customer',
+            phone: '9876543210',
+            line1: '123 Main St',
+            city: 'Chennai',
+            state: 'Tamil Nadu',
+            postalCode: '600001',
+            country: 'India',
+          },
+        });
+
+      expect(orderRes.status).toBe(201);
+      expect(orderRes.body.data.order.items[0].skuSnapshot).toBe('SMP-COTTON-01');
+
+      let p = await Product.findById(productId);
+      expect(p?.stock).toBe(6);
+
+      // Cancel order and verify stock is restored
+      await request(app)
+        .post(`/api/v1/orders/${orderRes.body.data.order._id}/cancel`)
+        .set(authHeader(user.token));
+
+      p = await Product.findById(productId);
+      expect(p?.stock).toBe(10);
+    });
+  });
 });

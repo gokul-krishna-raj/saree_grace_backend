@@ -11,6 +11,7 @@ import {
   AddVariantInput,
   CreateSimpleProductInput,
   CreateVariantShellInput,
+  CreateVariantProductInput,
   ListProductsQuery,
   UpdateProductInput,
   UpdateVariantInput,
@@ -128,6 +129,42 @@ async function assertSkuAvailable(
   }
 }
 
+function getFilesForVariant(
+  files: Express.Multer.File[],
+  index: number,
+  variantId?: string,
+): Express.Multer.File[] {
+  const indexStr = String(index);
+  return files.filter((f) => {
+    const field = f.fieldname.toLowerCase();
+    if (
+      field === `variant_image_${indexStr}` ||
+      field === `variant_images_${indexStr}` ||
+      field === `variant_image_${indexStr}[]` ||
+      field === `variant_images_${indexStr}[]` ||
+      field === `variant_${indexStr}` ||
+      field === `variant_${indexStr}[]` ||
+      field.startsWith(`variant_image_${indexStr}_`) ||
+      field.startsWith(`variant_images_${indexStr}_`)
+    ) {
+      return true;
+    }
+    if (variantId) {
+      const vid = variantId.toLowerCase();
+      if (
+        field === `variant_image_${vid}` ||
+        field === `variant_images_${vid}` ||
+        field === `variant_image_${vid}[]` ||
+        field === `variant_images_${vid}[]` ||
+        field === `variant_${vid}`
+      ) {
+        return true;
+      }
+    }
+    return false;
+  });
+}
+
 export async function createSimpleProduct(
   input: CreateSimpleProductInput,
   files: Express.Multer.File[],
@@ -156,6 +193,8 @@ export async function createSimpleProduct(
     stock: input.stock,
     sku: input.sku,
     images,
+    seoTitle: input.seoTitle,
+    seoDescription: input.seoDescription,
   });
 }
 
@@ -178,6 +217,85 @@ export async function createVariantShellProduct(
     loomType: input.loomType,
     variantAttributeNames: input.variantAttributeNames,
     variants: [],
+    seoTitle: input.seoTitle,
+    seoDescription: input.seoDescription,
+  });
+}
+
+export async function createVariantProduct(
+  input: CreateVariantProductInput,
+  files: Express.Multer.File[],
+): Promise<ProductDocument> {
+  await assertCategoryExists(input.category);
+  await assertOccasionsExist(input.occasions ?? []);
+  const slug = await generateUniqueProductSlug(input.name);
+
+  const variantsInput = input.variants ?? [];
+  if (variantsInput.length === 0) {
+    throw ApiError.badRequest('At least one variant is required for a variant product');
+  }
+
+  // Ensure unique SKUs among incoming variants and against existing database records
+  const seenSkus = new Set<string>();
+  for (const v of variantsInput) {
+    const skuUpper = v.sku.toUpperCase();
+    if (seenSkus.has(skuUpper)) {
+      throw ApiError.conflict(`Duplicate SKU "${v.sku}" within product variants`);
+    }
+    seenSkus.add(skuUpper);
+    await assertSkuAvailable(v.sku);
+  }
+
+  // Ensure unique attribute combinations
+  const seenAttrKeys = new Set<string>();
+  for (const [i, v] of variantsInput.entries()) {
+    const signature = Object.entries(v.attributes)
+      .filter(([k]) => k.toLowerCase() !== 'colorcode')
+      .map(([k, val]) => `${k.toLowerCase()}=${String(val).toLowerCase().trim()}`)
+      .sort()
+      .join('&');
+    if (seenAttrKeys.has(signature)) {
+      throw ApiError.badRequest(`Duplicate variant attribute combination at variant ${i + 1}`);
+    }
+    seenAttrKeys.add(signature);
+  }
+
+  // Validate and upload images for each variant
+  const variantsToCreate = [];
+  for (const [i, v] of variantsInput.entries()) {
+    const variantFiles = getFilesForVariant(files, i);
+    if (variantFiles.length === 0) {
+      throw ApiError.badRequest(
+        `Variant "${v.sku || `Variant ${i + 1}`}" must have at least one image`,
+      );
+    }
+    const uploadedImages = await uploadAll(variantFiles);
+    variantsToCreate.push({
+      _id: new Types.ObjectId(),
+      sku: v.sku.toUpperCase(),
+      attributes: new Map(Object.entries(v.attributes)),
+      price: v.price,
+      compareAtPrice: v.compareAtPrice,
+      stock: v.stock,
+      images: uploadedImages,
+      isActive: v.isActive ?? true,
+    });
+  }
+
+  return Product.create({
+    type: 'variant',
+    name: input.name,
+    slug,
+    description: input.description,
+    category: input.category,
+    occasions: input.occasions ?? [],
+    fabric: input.fabric,
+    color: input.color,
+    loomType: input.loomType,
+    variantAttributeNames: input.variantAttributeNames,
+    variants: variantsToCreate,
+    seoTitle: input.seoTitle,
+    seoDescription: input.seoDescription,
   });
 }
 
@@ -213,6 +331,11 @@ export async function updateProduct(
   if (input.color !== undefined) product.color = input.color;
   if (input.loomType !== undefined) product.loomType = input.loomType;
   if (input.isActive !== undefined) product.isActive = input.isActive;
+  if (input.seoTitle !== undefined) product.seoTitle = input.seoTitle;
+  if (input.seoDescription !== undefined) product.seoDescription = input.seoDescription;
+  if (input.variantAttributeNames !== undefined && product.type === 'variant') {
+    product.variantAttributeNames = input.variantAttributeNames;
+  }
 
   if (product.type === 'simple') {
     if (input.price !== undefined) product.price = input.price;
@@ -222,17 +345,105 @@ export async function updateProduct(
       await assertSkuAvailable(input.sku, id);
       product.sku = input.sku;
     }
+
+    if (input.removeImagePublicIds && input.removeImagePublicIds.length > 0) {
+      const toRemove = new Set(input.removeImagePublicIds);
+      await deleteCloudinaryImages([...toRemove]);
+      product.images = product.images.filter((img) => !toRemove.has(img.publicId));
+    }
+
+    const simpleFiles = newFiles.filter(
+      (f) => f.fieldname === 'images' || f.fieldname === 'images[]',
+    );
+    if (simpleFiles.length > 0) {
+      const uploaded = await uploadAll(simpleFiles);
+      product.images.push(...uploaded);
+    }
   }
 
-  if (input.removeImagePublicIds && input.removeImagePublicIds.length > 0) {
-    const toRemove = new Set(input.removeImagePublicIds);
-    await deleteCloudinaryImages([...toRemove]);
-    product.images = product.images.filter((img) => !toRemove.has(img.publicId));
-  }
+  if (product.type === 'variant' && input.variants !== undefined) {
+    const variantsInput = input.variants;
+    if (variantsInput.length === 0) {
+      throw ApiError.badRequest('A variant product must have at least one variant');
+    }
 
-  if (newFiles.length > 0) {
-    const uploaded = await uploadAll(newFiles);
-    product.images.push(...uploaded);
+    // Check unique SKUs within incoming variants
+    const seenSkus = new Set<string>();
+    for (const v of variantsInput) {
+      const skuUpper = v.sku.toUpperCase();
+      if (seenSkus.has(skuUpper)) {
+        throw ApiError.conflict(`Duplicate SKU "${v.sku}" within product variants`);
+      }
+      seenSkus.add(skuUpper);
+      await assertSkuAvailable(v.sku, id, v._id);
+    }
+
+    // Check duplicate attribute combinations
+    const seenAttrKeys = new Set<string>();
+    for (const [i, v] of variantsInput.entries()) {
+      const signature = Object.entries(v.attributes)
+        .filter(([k]) => k.toLowerCase() !== 'colorcode')
+        .map(([k, val]) => `${k.toLowerCase()}=${String(val).toLowerCase().trim()}`)
+        .sort()
+        .join('&');
+      if (seenAttrKeys.has(signature)) {
+        throw ApiError.badRequest(`Duplicate variant attribute combination at variant ${i + 1}`);
+      }
+      seenAttrKeys.add(signature);
+    }
+
+    const incomingIds = new Set(variantsInput.map((v) => v._id).filter(Boolean));
+    // Find deleted variants and collect their images for deletion from Cloudinary
+    const imagesToDelete: string[] = [];
+    for (const existingVariant of product.variants) {
+      if (!incomingIds.has(existingVariant._id.toString())) {
+        imagesToDelete.push(...existingVariant.images.map((img) => img.publicId));
+      }
+    }
+
+    const updatedVariants = [];
+    for (const [i, v] of variantsInput.entries()) {
+      const existingVariant = v._id
+        ? product.variants.find((ev) => ev._id.toString() === v._id)
+        : undefined;
+
+      let currentImages: ProductImage[] = existingVariant ? [...existingVariant.images] : [];
+
+      if (v.removeImagePublicIds && v.removeImagePublicIds.length > 0) {
+        const removeSet = new Set(v.removeImagePublicIds);
+        imagesToDelete.push(...v.removeImagePublicIds);
+        currentImages = currentImages.filter((img) => !removeSet.has(img.publicId));
+      }
+
+      const variantFiles = getFilesForVariant(newFiles, i, v._id);
+      if (variantFiles.length > 0) {
+        const uploaded = await uploadAll(variantFiles);
+        currentImages.push(...uploaded);
+      }
+
+      if (currentImages.length === 0) {
+        throw ApiError.badRequest(
+          `Variant "${v.sku || `Variant ${i + 1}`}" must have at least one image`,
+        );
+      }
+
+      updatedVariants.push({
+        _id: existingVariant ? existingVariant._id : new Types.ObjectId(),
+        sku: v.sku.toUpperCase(),
+        attributes: new Map(Object.entries(v.attributes)),
+        price: v.price,
+        compareAtPrice: v.compareAtPrice,
+        stock: v.stock,
+        images: currentImages,
+        isActive: v.isActive ?? true,
+      });
+    }
+
+    if (imagesToDelete.length > 0) {
+      await deleteCloudinaryImages(imagesToDelete);
+    }
+
+    product.variants = updatedVariants as typeof product.variants;
   }
 
   await product.save();
@@ -513,8 +724,17 @@ export async function decrementStock(
   qty: number,
 ): Promise<void> {
   if (variantId) {
+    const variantObjectId = new Types.ObjectId(variantId);
     const result = await Product.updateOne(
-      { _id: productId, 'variants._id': variantId, 'variants.stock': { $gte: qty } },
+      {
+        _id: new Types.ObjectId(productId),
+        variants: {
+          $elemMatch: {
+            _id: variantObjectId,
+            stock: { $gte: qty },
+          },
+        },
+      },
       { $inc: { 'variants.$.stock': -qty } },
     );
     if (result.matchedCount === 0) {
@@ -522,7 +742,7 @@ export async function decrementStock(
     }
   } else {
     const result = await Product.updateOne(
-      { _id: productId, stock: { $gte: qty } },
+      { _id: new Types.ObjectId(productId), stock: { $gte: qty } },
       { $inc: { stock: -qty } },
     );
     if (result.matchedCount === 0) {
@@ -537,12 +757,13 @@ export async function restoreStock(
   qty: number,
 ): Promise<void> {
   if (variantId) {
+    const variantObjectId = new Types.ObjectId(variantId);
     await Product.updateOne(
-      { _id: productId, 'variants._id': variantId },
+      { _id: new Types.ObjectId(productId), 'variants._id': variantObjectId },
       { $inc: { 'variants.$.stock': qty } },
     );
   } else {
-    await Product.updateOne({ _id: productId }, { $inc: { stock: qty } });
+    await Product.updateOne({ _id: new Types.ObjectId(productId) }, { $inc: { stock: qty } });
   }
 }
 

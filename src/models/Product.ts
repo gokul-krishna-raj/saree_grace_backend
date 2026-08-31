@@ -47,6 +47,10 @@ export interface ProductDocument extends Document {
   variantAttributeNames: string[];
   variants: ProductVariant[];
 
+  // SEO metadata fields
+  seoTitle?: string;
+  seoDescription?: string;
+
   ratingAvg: number;
   reviewCount: number;
   isActive: boolean;
@@ -102,6 +106,9 @@ const productSchema = new Schema<ProductDocument>(
       default: 'unknown',
       index: true,
     },
+
+    seoTitle: { type: String, trim: true, maxlength: 100 },
+    seoDescription: { type: String, trim: true, maxlength: 300 },
 
     price: {
       type: Number,

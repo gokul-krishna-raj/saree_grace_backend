@@ -18,14 +18,14 @@ router.use(requireAuth, requireAdmin);
 
 router.post(
   '/',
-  uploadImages.array('images', 10),
+  uploadImages.any(),
   validate({ body: createProductSchema }),
   productController.createProduct,
 );
 
 router.put(
   '/:id',
-  uploadImages.array('images', 10),
+  uploadImages.any(),
   validate({ params: productIdParamSchema, body: updateProductSchema }),
   productController.updateProduct,
 );

@@ -295,13 +295,12 @@ export async function logoutUser(refreshToken: string): Promise<void> {
 }
 
 export async function requestPasswordReset(email: string): Promise<void> {
-  // passwordHash is `select: false` on the schema — must opt in explicitly,
-  // otherwise this check always sees it as missing and silently no-ops for
-  // every user, breaking password reset entirely.
+  // `+passwordHash` is intentional: passwordHash is `select: false` on the User schema,
+  // so without this `.select()` user.passwordHash would be undefined.
   const user = await User.findOne({ email }).select('+passwordHash');
   // Always resolve successfully regardless of whether the account exists,
   // to avoid leaking which emails are registered.
-  if (!user || !user.passwordHash) {
+  if (!user) {
     return;
   }
 

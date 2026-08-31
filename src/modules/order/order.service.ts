@@ -44,11 +44,22 @@ async function executeOrderCreation(
   try {
     // Stock is reserved by decrementing it immediately and atomically per item
     for (const item of cart.items) {
-      const variantId = item.variantId ? item.variantId.toString() : null;
-      const filter: Record<string, unknown> = variantId
-        ? { _id: item.product, 'variants._id': variantId, 'variants.stock': { $gte: item.qty } }
-        : { _id: item.product, stock: { $gte: item.qty } };
-      const update = variantId
+      const variantObjectId = item.variantId ? new mongoose.Types.ObjectId(item.variantId) : null;
+      const productObjectId = new mongoose.Types.ObjectId(item.product);
+
+      const filter: Record<string, unknown> = variantObjectId
+        ? {
+            _id: productObjectId,
+            variants: {
+              $elemMatch: {
+                _id: variantObjectId,
+                stock: { $gte: item.qty },
+              },
+            },
+          }
+        : { _id: productObjectId, stock: { $gte: item.qty } };
+
+      const update = variantObjectId
         ? { $inc: { 'variants.$.stock': -item.qty } }
         : { $inc: { stock: -item.qty } };
 
@@ -57,8 +68,8 @@ async function executeOrderCreation(
         throw ApiError.conflict(`Insufficient stock for "${item.nameSnapshot}"`);
       }
       reservedItems.push({
-        productId: item.product.toString(),
-        variantId,
+        productId: productObjectId.toString(),
+        variantId: variantObjectId ? variantObjectId.toString() : null,
         qty: item.qty,
       });
     }
@@ -77,6 +88,7 @@ async function executeOrderCreation(
             variantId: item.variantId,
             nameSnapshot: item.nameSnapshot,
             imageSnapshot: item.imageSnapshot,
+            skuSnapshot: item.skuSnapshot,
             priceSnapshot: item.priceSnapshot,
             qty: item.qty,
           })),

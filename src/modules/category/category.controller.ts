@@ -30,6 +30,11 @@ export const deleteCategory = asyncHandler(async (req: Request, res: Response) =
   sendSuccess(res, { message: 'Category deleted' });
 });
 
+export const getCategory = asyncHandler(async (req: Request, res: Response) => {
+  const category = await categoryService.getCategoryByIdOrSlug(req.params.idOrSlug as string);
+  sendSuccess(res, { category });
+});
+
 export const listCategories = asyncHandler(async (req: Request, res: Response) => {
   const wantsTree = (req.query as unknown as { tree?: boolean }).tree === true;
   if (wantsTree) {

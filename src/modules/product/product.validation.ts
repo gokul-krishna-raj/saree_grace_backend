@@ -42,74 +42,6 @@ const occasionsField = z
   .optional();
 
 // Multipart form fields arrive as strings — coerce numbers/booleans/arrays.
-export const createSimpleProductSchema = z.object({
-  type: z.literal('simple'),
-  name: z.string().trim().min(2).max(200),
-  description: z.string().trim().min(1).max(5000),
-  category: objectId,
-  occasions: occasionsField,
-  fabric: z.string().trim().max(100).optional(),
-  color: z.string().trim().max(100).optional(),
-  loomType: loomType.optional().default('unknown'),
-  price: z.coerce.number().positive(),
-  compareAtPrice: z.coerce.number().positive().optional(),
-  stock: z.coerce.number().int().min(0),
-  sku: z.string().trim().toUpperCase().optional(),
-});
-
-export const createVariantShellProductSchema = z.object({
-  type: z.literal('variant'),
-  name: z.string().trim().min(2).max(200),
-  description: z.string().trim().min(1).max(5000),
-  category: objectId,
-  occasions: occasionsField,
-  fabric: z.string().trim().max(100).optional(),
-  color: z.string().trim().max(100).optional(),
-  loomType: loomType.optional().default('unknown'),
-  variantAttributeNames: z
-    .union([z.array(z.string()), z.string()])
-    .transform((v) => (Array.isArray(v) ? v : parseListField(v)))
-    .refine((arr) => arr.length > 0, 'At least one variant attribute name is required'),
-});
-
-export const createProductSchema = z.discriminatedUnion('type', [
-  createSimpleProductSchema,
-  createVariantShellProductSchema,
-]);
-
-const removeImagePublicIdsSchema = z
-  .union([z.array(z.string()), z.string()])
-  .transform((v) => {
-    if (Array.isArray(v)) return v;
-    if (typeof v === 'string') {
-      try {
-        const parsed = JSON.parse(v);
-        if (Array.isArray(parsed)) return parsed.map(String);
-      } catch {
-        // Fallback for single raw public ID string
-      }
-      return [v];
-    }
-    return [];
-  })
-  .optional();
-
-export const updateProductSchema = z.object({
-  name: z.string().trim().min(2).max(200).optional(),
-  description: z.string().trim().min(1).max(5000).optional(),
-  category: objectId.optional(),
-  occasions: occasionsField,
-  fabric: z.string().trim().max(100).optional(),
-  color: z.string().trim().max(100).optional(),
-  loomType: loomType.optional(),
-  price: z.coerce.number().positive().optional(),
-  compareAtPrice: z.coerce.number().positive().optional(),
-  stock: z.coerce.number().int().min(0).optional(),
-  sku: z.string().trim().toUpperCase().optional(),
-  isActive: coercedBool.optional(),
-  removeImagePublicIds: removeImagePublicIdsSchema,
-});
-
 const HEX_COLOR_RE = /^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/;
 
 // `attributes` is a free-form key/value bag (color, size, colorCode, ...) —
@@ -129,6 +61,114 @@ const variantAttributesSchema = z
   .refine((attrs) => attrs.colorCode === undefined || HEX_COLOR_RE.test(attrs.colorCode.trim()), {
     message: 'colorCode must be a valid hex color (e.g. #800000 or #f00)',
   });
+
+const removeImagePublicIdsSchema = z
+  .union([z.array(z.string()), z.string()])
+  .transform((v) => {
+    if (Array.isArray(v)) return v;
+    if (typeof v === 'string') {
+      try {
+        const parsed = JSON.parse(v);
+        if (Array.isArray(parsed)) return parsed.map(String);
+      } catch {
+        // Fallback for single raw public ID string
+      }
+      return [v];
+    }
+    return [];
+  })
+  .optional();
+
+export const variantItemInputSchema = z.object({
+  _id: objectId.optional(),
+  sku: z.string().trim().min(1, 'SKU is required').toUpperCase(),
+  attributes: variantAttributesSchema,
+  price: z.coerce.number().positive('Price must be greater than 0'),
+  compareAtPrice: z.coerce.number().positive().optional(),
+  stock: z.coerce.number().int().min(0, 'Stock cannot be negative'),
+  isActive: coercedBool.optional().default(true),
+  removeImagePublicIds: removeImagePublicIdsSchema,
+});
+
+const variantsListSchema = z
+  .union([z.array(variantItemInputSchema), z.string()])
+  .transform((v) => {
+    if (typeof v === 'string') {
+      try {
+        const parsed = JSON.parse(v);
+        if (Array.isArray(parsed)) return parsed;
+      } catch {
+        return [];
+      }
+    }
+    return Array.isArray(v) ? v : [];
+  })
+  .pipe(z.array(variantItemInputSchema));
+
+export const createSimpleProductSchema = z.object({
+  type: z.literal('simple'),
+  name: z.string().trim().min(2).max(200),
+  description: z.string().trim().min(1).max(5000),
+  category: objectId,
+  occasions: occasionsField,
+  fabric: z.string().trim().max(100).optional(),
+  color: z.string().trim().max(100).optional(),
+  loomType: loomType.optional().default('unknown'),
+  price: z.coerce.number().positive(),
+  compareAtPrice: z.coerce.number().positive().optional(),
+  stock: z.coerce.number().int().min(0),
+  sku: z.string().trim().toUpperCase().optional(),
+  seoTitle: z.string().trim().max(100).optional(),
+  seoDescription: z.string().trim().max(300).optional(),
+});
+
+export const createVariantShellProductSchema = z.object({
+  type: z.literal('variant'),
+  name: z.string().trim().min(2).max(200),
+  description: z.string().trim().min(1).max(5000),
+  category: objectId,
+  occasions: occasionsField,
+  fabric: z.string().trim().max(100).optional(),
+  color: z.string().trim().max(100).optional(),
+  loomType: loomType.optional().default('unknown'),
+  variantAttributeNames: z
+    .union([z.array(z.string()), z.string()])
+    .transform((v) => (Array.isArray(v) ? v : parseListField(v)))
+    .refine((arr) => arr.length > 0, 'At least one variant attribute name is required'),
+  seoTitle: z.string().trim().max(100).optional(),
+  seoDescription: z.string().trim().max(300).optional(),
+  variants: variantsListSchema.optional(),
+});
+
+export const createVariantProductSchema = createVariantShellProductSchema;
+
+export const createProductSchema = z.discriminatedUnion('type', [
+  createSimpleProductSchema,
+  createVariantProductSchema,
+]);
+
+export const updateProductSchema = z.object({
+  name: z.string().trim().min(2).max(200).optional(),
+  description: z.string().trim().min(1).max(5000).optional(),
+  category: objectId.optional(),
+  occasions: occasionsField,
+  fabric: z.string().trim().max(100).optional(),
+  color: z.string().trim().max(100).optional(),
+  loomType: loomType.optional(),
+  variantAttributeNames: z
+    .union([z.array(z.string()), z.string()])
+    .transform((v) => (Array.isArray(v) ? v : parseListField(v)))
+    .optional(),
+  price: z.coerce.number().positive().optional(),
+  compareAtPrice: z.coerce.number().positive().optional(),
+  stock: z.coerce.number().int().min(0).optional(),
+  sku: z.string().trim().toUpperCase().optional(),
+  isActive: coercedBool.optional(),
+  removeImagePublicIds: removeImagePublicIdsSchema,
+  seoTitle: z.string().trim().max(100).optional(),
+  seoDescription: z.string().trim().max(300).optional(),
+  variants: variantsListSchema.optional(),
+});
 
 export const addVariantSchema = z.object({
   sku: z.string().trim().min(1).toUpperCase(),
@@ -187,6 +227,8 @@ export const listBestSellersQuerySchema = z.object({
 
 export type CreateSimpleProductInput = z.infer<typeof createSimpleProductSchema>;
 export type CreateVariantShellInput = z.infer<typeof createVariantShellProductSchema>;
+export type CreateVariantProductInput = z.infer<typeof createVariantProductSchema>;
+export type VariantItemInput = z.infer<typeof variantItemInputSchema>;
 export type UpdateProductInput = z.infer<typeof updateProductSchema>;
 export type AddVariantInput = z.infer<typeof addVariantSchema>;
 export type UpdateVariantInput = z.infer<typeof updateVariantSchema>;

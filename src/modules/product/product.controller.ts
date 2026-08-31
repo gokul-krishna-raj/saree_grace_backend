@@ -6,6 +6,7 @@ import * as productService from './product.service';
 import {
   CreateSimpleProductInput,
   CreateVariantShellInput,
+  CreateVariantProductInput,
   UpdateProductInput,
   AddVariantInput,
   UpdateVariantInput,
@@ -22,6 +23,14 @@ export const createProduct = asyncHandler(async (req: Request, res: Response) =>
   if (req.body.type === 'simple') {
     const product = await productService.createSimpleProduct(
       req.body as CreateSimpleProductInput,
+      files,
+    );
+    sendSuccess(res, { product }, 201);
+    return;
+  }
+  if (req.body.variants && req.body.variants.length > 0) {
+    const product = await productService.createVariantProduct(
+      req.body as CreateVariantProductInput,
       files,
     );
     sendSuccess(res, { product }, 201);

@@ -49,15 +49,15 @@ export async function triggerOrderConfirmationEmail(order: OrderDocument): Promi
       itemsTotal: order.itemsTotal,
       shippingFee: order.shippingFee,
       total: order.total,
-      paymentMethod: order.payment.method,
+      paymentMethod: order.payment?.method,
       paymentStatus: order.status,
       deliveryAddressLines: [
-        order.shippingAddress.fullName,
-        order.shippingAddress.line1,
-        order.shippingAddress.line2,
-        `${order.shippingAddress.city}, ${order.shippingAddress.state} ${order.shippingAddress.postalCode}`,
-        order.shippingAddress.country,
-      ].filter((line): line is string => Boolean(line)),
+        order.shippingAddress?.fullName,
+        order.shippingAddress?.line1,
+        order.shippingAddress?.line2,
+        `${order.shippingAddress?.city ?? ''}, ${order.shippingAddress?.state ?? ''} ${order.shippingAddress?.postalCode ?? ''}`.trim(),
+        order.shippingAddress?.country,
+      ].filter((line): line is string => Boolean(line && line !== ',')),
       viewOrderUrl: orderViewUrl(order._id.toString()),
     });
   } catch (err) {
@@ -104,10 +104,10 @@ export async function triggerOrderStatusEmail(
       case 'paid': {
         await sendPaymentSuccessEmail({
           ...base,
-          amount: order.payment.amountPaid ?? order.total,
-          paymentMethod: order.payment.method,
-          transactionId: order.payment.razorpayPaymentId ?? 'unknown',
-          paymentDate: order.payment.paidAt ?? new Date(),
+          amount: order.payment?.amountPaid ?? order.total,
+          paymentMethod: order.payment?.method,
+          transactionId: order.payment?.razorpayPaymentId ?? 'unknown',
+          paymentDate: order.payment?.paidAt ?? new Date(),
         });
         return;
       }
@@ -115,7 +115,7 @@ export async function triggerOrderStatusEmail(
         await sendPaymentFailedEmail({
           ...base,
           amount: order.total,
-          failureReason: order.payment.failureReason,
+          failureReason: order.payment?.failureReason,
           retryPaymentUrl: orderViewUrl(order._id.toString()),
         });
         return;
@@ -123,9 +123,9 @@ export async function triggerOrderStatusEmail(
       case 'shipped': {
         await sendOrderShippedEmail({
           ...base,
-          carrier: order.tracking.carrier,
-          trackingId: order.tracking.trackingId,
-          trackingUrl: order.tracking.trackingUrl,
+          carrier: order.tracking?.carrier,
+          trackingId: order.tracking?.trackingId,
+          trackingUrl: order.tracking?.trackingUrl,
           shippedDate: new Date(),
         });
         return;
@@ -143,8 +143,8 @@ export async function triggerOrderStatusEmail(
           ...base,
           cancelledItems: order.items.map((item) => ({ name: item.nameSnapshot, qty: item.qty })),
           cancelledDate: new Date(),
-          refundAmount: order.payment.refund?.amount,
-          refundStatus: order.payment.refund?.status,
+          refundAmount: order.payment?.refund?.amount,
+          refundStatus: order.payment?.refund?.status,
         });
         return;
       }

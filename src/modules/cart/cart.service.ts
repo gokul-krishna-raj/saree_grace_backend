@@ -8,6 +8,7 @@ interface ResolvedItem {
   price: number;
   name: string;
   image?: string;
+  sku?: string;
   stock: number;
 }
 
@@ -35,6 +36,7 @@ async function resolveProductAndVariant(
         variant.images[0]?.url ??
         product.images[0]?.url ??
         product.variants.flatMap((v) => v.images)[0]?.url,
+      sku: variant.sku,
       stock: variant.stock,
     };
   }
@@ -43,6 +45,7 @@ async function resolveProductAndVariant(
     price: product.price ?? 0,
     name: product.name,
     image: product.images[0]?.url ?? product.variants.flatMap((v) => v.images)[0]?.url,
+    sku: product.sku,
     stock: product.stock ?? 0,
   };
 }
@@ -95,6 +98,7 @@ export async function addItemToCart(
       priceSnapshot: resolved.price,
       nameSnapshot: resolved.name,
       imageSnapshot: resolved.image,
+      skuSnapshot: resolved.sku,
     });
   }
 
@@ -123,6 +127,7 @@ export async function updateCartItem(
 
   item.qty = input.qty;
   item.priceSnapshot = resolved.price;
+  item.skuSnapshot = resolved.sku;
   await cart.save();
   return cart;
 }
@@ -163,6 +168,7 @@ export async function mergeGuestCartIntoUserCart(
       if (existing) {
         existing.qty = Math.min(existing.qty + guestItem.qty, resolved.stock);
         existing.priceSnapshot = resolved.price;
+        existing.skuSnapshot = resolved.sku;
       } else {
         cart.items.push({
           _id: new Types.ObjectId(),
@@ -172,6 +178,7 @@ export async function mergeGuestCartIntoUserCart(
           priceSnapshot: resolved.price,
           nameSnapshot: resolved.name,
           imageSnapshot: resolved.image,
+          skuSnapshot: resolved.sku,
         });
       }
     } catch {

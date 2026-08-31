@@ -39,6 +39,8 @@ export async function createCategory(
     name: input.name,
     slug,
     description: input.description,
+    seoTitle: input.seoTitle,
+    seoDescription: input.seoDescription,
     parentCategory: input.parentCategory ?? null,
     image: image ? { url: image.url, publicId: image.publicId } : undefined,
   });
@@ -73,6 +75,12 @@ export async function updateCategory(
   }
   if (input.description !== undefined) {
     category.description = input.description;
+  }
+  if (input.seoTitle !== undefined) {
+    category.seoTitle = input.seoTitle;
+  }
+  if (input.seoDescription !== undefined) {
+    category.seoDescription = input.seoDescription;
   }
   if (input.isActive !== undefined) {
     category.isActive = input.isActive;
@@ -123,6 +131,18 @@ export async function deleteCategory(id: string): Promise<void> {
     await deleteCloudinaryImage(category.image.publicId);
   }
   await category.deleteOne();
+}
+
+export async function getCategoryByIdOrSlug(idOrSlug: string): Promise<CategoryDocument> {
+  const isId = idOrSlug.match(/^[0-9a-fA-F]{24}$/);
+  const category = await Category.findOne({
+    $or: [{ slug: idOrSlug }, ...(isId ? [{ _id: idOrSlug }] : [])],
+    isActive: true,
+  });
+  if (!category) {
+    throw ApiError.notFound('Category not found');
+  }
+  return category;
 }
 
 export async function listCategoriesFlat(): Promise<CategoryDocument[]> {

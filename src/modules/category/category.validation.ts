@@ -13,6 +13,8 @@ export const createCategorySchema = z.object({
   name: z.string().trim().min(2).max(100),
   description: z.string().trim().max(1000).optional(),
   parentCategory: objectId.nullable().optional(),
+  seoTitle: z.string().trim().max(100).optional(),
+  seoDescription: z.string().trim().max(300).optional(),
 });
 
 export const updateCategorySchema = z.object({
@@ -22,10 +24,16 @@ export const updateCategorySchema = z.object({
   isActive: coercedBool.optional(),
   // Clears the existing image without uploading a replacement.
   removeImage: coercedBool.optional(),
+  seoTitle: z.string().trim().max(100).optional(),
+  seoDescription: z.string().trim().max(300).optional(),
 });
 
 export const categoryIdParamSchema = z.object({
   id: objectId,
+});
+
+export const categoryParamSchema = z.object({
+  idOrSlug: z.string().trim().min(1),
 });
 
 export const listCategoriesQuerySchema = z.object({

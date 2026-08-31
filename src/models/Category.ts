@@ -5,6 +5,8 @@ export interface CategoryDocument extends Document {
   name: string;
   slug: string;
   description?: string;
+  seoTitle?: string;
+  seoDescription?: string;
   parentCategory: Types.ObjectId | null;
   image?: { url: string; publicId: string };
   isActive: boolean;
@@ -17,6 +19,8 @@ const categorySchema = new Schema<CategoryDocument>(
     name: { type: String, required: true, trim: true },
     slug: { type: String, required: true, unique: true, lowercase: true, trim: true, index: true },
     description: { type: String, trim: true },
+    seoTitle: { type: String, trim: true, maxlength: 100 },
+    seoDescription: { type: String, trim: true, maxlength: 300 },
     parentCategory: { type: Schema.Types.ObjectId, ref: 'Category', default: null, index: true },
     image: {
       url: { type: String },

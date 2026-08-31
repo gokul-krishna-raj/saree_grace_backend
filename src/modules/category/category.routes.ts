@@ -7,12 +7,14 @@ import {
   createCategorySchema,
   updateCategorySchema,
   categoryIdParamSchema,
+  categoryParamSchema,
   listCategoriesQuerySchema,
 } from './category.validation';
 
 const router = Router();
 
 router.get('/', validate({ query: listCategoriesQuerySchema }), categoryController.listCategories);
+router.get('/:idOrSlug', validate({ params: categoryParamSchema }), categoryController.getCategory);
 
 router.post(
   '/',

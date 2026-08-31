@@ -12,6 +12,7 @@ export interface CartItem {
   priceSnapshot: number;
   nameSnapshot: string;
   imageSnapshot?: string;
+  skuSnapshot?: string;
 }
 
 export interface CartDocument extends Document {
@@ -30,6 +31,7 @@ const cartItemSchema = new Schema<CartItem>(
     priceSnapshot: { type: Number, required: true, min: 0 },
     nameSnapshot: { type: String, required: true },
     imageSnapshot: { type: String },
+    skuSnapshot: { type: String },
   },
   { _id: true },
 );
