@@ -3,6 +3,9 @@ import { Product, ProductDocument, ProductImage } from '../../models/Product';
 import { Category } from '../../models/Category';
 import { Occasion } from '../../models/Occasion';
 import { Order, OrderStatus } from '../../models/Order';
+import { Review } from '../../models/Review';
+import { Cart } from '../../models/Cart';
+import { Wishlist } from '../../models/Wishlist';
 import { ApiError } from '../../utils/ApiError';
 import { slugify } from '../../utils/slugify';
 import { uploadBufferToCloudinary, deleteCloudinaryImages } from '../../utils/cloudinaryUpload';
@@ -395,9 +398,11 @@ export async function updateProduct(
     const incomingIds = new Set(variantsInput.map((v) => v._id).filter(Boolean));
     // Find deleted variants and collect their images for deletion from Cloudinary
     const imagesToDelete: string[] = [];
+    const deletedVariantIds: Types.ObjectId[] = [];
     for (const existingVariant of product.variants) {
       if (!incomingIds.has(existingVariant._id.toString())) {
         imagesToDelete.push(...existingVariant.images.map((img) => img.publicId));
+        deletedVariantIds.push(existingVariant._id);
       }
     }
 
@@ -443,6 +448,13 @@ export async function updateProduct(
       await deleteCloudinaryImages(imagesToDelete);
     }
 
+    if (deletedVariantIds.length > 0) {
+      await Cart.updateMany(
+        { 'items.variantId': { $in: deletedVariantIds } },
+        { $pull: { items: { variantId: { $in: deletedVariantIds } } } },
+      );
+    }
+
     product.variants = updatedVariants as typeof product.variants;
   }
 
@@ -453,11 +465,32 @@ export async function updateProduct(
 export async function deleteProduct(id: string): Promise<void> {
   const product = await findProductOrThrow(id);
 
+  // 1. Clean up associated reviews and their Cloudinary photos
+  const reviews = await Review.find({ product: id });
+  const reviewImagePublicIds = reviews
+    .flatMap((r) => r.images.map((img) => img.publicId))
+    .filter(Boolean);
+  if (reviewImagePublicIds.length > 0) {
+    await deleteCloudinaryImages(reviewImagePublicIds);
+  }
+  await Review.deleteMany({ product: id });
+
+  // 2. Clean up user carts containing this product
+  await Cart.updateMany({ 'items.product': id }, { $pull: { items: { product: id } } });
+
+  // 3. Clean up user wishlists containing this product
+  await Wishlist.updateMany({ productIds: id }, { $pull: { productIds: id } });
+
+  // 4. Clean up all product and variant Cloudinary images
   const publicIds = [
     ...product.images.map((img) => img.publicId),
     ...product.variants.flatMap((v) => v.images.map((img) => img.publicId)),
-  ];
-  await deleteCloudinaryImages(publicIds);
+  ].filter(Boolean);
+  if (publicIds.length > 0) {
+    await deleteCloudinaryImages(publicIds);
+  }
+
+  // 5. Delete the product record
   await product.deleteOne();
 }
 
@@ -541,10 +574,19 @@ export async function deleteVariant(
     throw ApiError.notFound('Variant not found');
   }
 
-  await deleteCloudinaryImages(variant.images.map((img) => img.publicId));
+  const variantImagePublicIds = variant.images.map((img) => img.publicId).filter(Boolean);
+  if (variantImagePublicIds.length > 0) {
+    await deleteCloudinaryImages(variantImagePublicIds);
+  }
   product.variants = product.variants.filter(
     (v) => v._id.toString() !== variantId,
   ) as typeof product.variants;
+
+  const variantObjectId = new Types.ObjectId(variantId);
+  await Cart.updateMany(
+    { 'items.variantId': variantObjectId },
+    { $pull: { items: { variantId: variantObjectId } } },
+  );
 
   await product.save();
   return product;

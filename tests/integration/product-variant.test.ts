@@ -1,6 +1,7 @@
 import { request, buildApp, createAdmin, createUser, authHeader } from '../helpers';
 import { Category } from '../../src/models/Category';
 import { Product } from '../../src/models/Product';
+import { Cart } from '../../src/models/Cart';
 import { deleteCloudinaryImages } from '../../src/utils/cloudinaryUpload';
 
 const fakeImage = Buffer.from('fake-image-bytes');
@@ -295,6 +296,57 @@ describe('Variant products (admin)', () => {
     expect(deleteRes.status).toBe(200);
     expect(deleteRes.body.data.product.variants).toHaveLength(0);
     expect(deleteCloudinaryImages).toHaveBeenCalledWith([publicId]);
+  });
+
+  it('deletes a variant and cleans up user carts while leaving sibling variants intact', async () => {
+    const admin = await createAdmin();
+    const user = await createUser();
+    const categoryId = await makeCategory();
+    const productId = await createShell(admin, categoryId);
+
+    const addRes1 = await request(app)
+      .post(`/api/v1/admin/products/${productId}/variants`)
+      .set('Authorization', `Bearer ${admin.token}`)
+      .field('sku', 'CAS-VAR-1')
+      .field('attributes', JSON.stringify({ color: 'Red' }))
+      .field('price', '2000')
+      .field('stock', '5')
+      .attach('images', fakeImage, { filename: 'red.jpg', contentType: 'image/jpeg' });
+
+    const addRes2 = await request(app)
+      .post(`/api/v1/admin/products/${productId}/variants`)
+      .set('Authorization', `Bearer ${admin.token}`)
+      .field('sku', 'CAS-VAR-2')
+      .field('attributes', JSON.stringify({ color: 'Blue' }))
+      .field('price', '2200')
+      .field('stock', '5')
+      .attach('images', fakeImage, { filename: 'blue.jpg', contentType: 'image/jpeg' });
+
+    const var1Id = addRes1.body.data.product.variants[0]._id;
+    const var2Id = addRes2.body.data.product.variants[1]._id;
+
+    // User adds both variants to cart
+    await request(app)
+      .post('/api/v1/cart')
+      .set(authHeader(user.token))
+      .send({ productId, variantId: var1Id, qty: 1 });
+
+    await request(app)
+      .post('/api/v1/cart')
+      .set(authHeader(user.token))
+      .send({ productId, variantId: var2Id, qty: 1 });
+
+    // Admin deletes variant 1
+    const delRes = await request(app)
+      .delete(`/api/v1/admin/products/${productId}/variants/${var1Id}`)
+      .set('Authorization', `Bearer ${admin.token}`);
+
+    expect(delRes.status).toBe(200);
+
+    // Verify user cart has var1 removed, but var2 kept
+    const cart = await Cart.findOne({ user: user.id });
+    expect(cart?.items.some((item) => item.variantId?.toString() === var1Id)).toBe(false);
+    expect(cart?.items.some((item) => item.variantId?.toString() === var2Id)).toBe(true);
   });
 
   it('rejects cross-type duplicate SKU (simple product SKU matching variant SKU)', async () => {

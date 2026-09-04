@@ -1,6 +1,10 @@
-import { request, buildApp, createAdmin } from '../helpers';
+import { request, buildApp, createAdmin, createUser, authHeader } from '../helpers';
 import { Category } from '../../src/models/Category';
 import { Product } from '../../src/models/Product';
+import { Cart } from '../../src/models/Cart';
+import { Wishlist } from '../../src/models/Wishlist';
+import { Review } from '../../src/models/Review';
+import { Order } from '../../src/models/Order';
 import { deleteCloudinaryImages } from '../../src/utils/cloudinaryUpload';
 
 const fakeImage = Buffer.from('fake-image-bytes');
@@ -159,5 +163,105 @@ describe('Simple products (admin)', () => {
       .field('sku', 'sg-001');
 
     expect(res.status).toBe(409);
+  });
+
+  it('deletes a product and cascades cleanup to reviews, review images, user carts, and wishlists', async () => {
+    const admin = await createAdmin();
+    const user = await createUser();
+    const categoryId = await makeCategory();
+
+    const createRes = await request(app)
+      .post('/api/v1/admin/products')
+      .set('Authorization', `Bearer ${admin.token}`)
+      .field('type', 'simple')
+      .field('name', 'Cascade Test Saree')
+      .field('description', 'desc')
+      .field('category', categoryId)
+      .field('price', '2500')
+      .field('stock', '5')
+      .attach('images', fakeImage, { filename: 'cascade.jpg', contentType: 'image/jpeg' });
+
+    const productId = createRes.body.data.product._id;
+    const productImagePublicId = createRes.body.data.product.images[0].publicId;
+
+    // 1. Add to user cart
+    await request(app).post('/api/v1/cart').set(authHeader(user.token)).send({ productId, qty: 2 });
+
+    // 2. Add to user wishlist
+    await request(app).post(`/api/v1/wishlist/${productId}`).set(authHeader(user.token));
+
+    // 3. Create a delivered order and review for this product
+    const order = await Order.create({
+      orderNumber: 'SG-TEST-CAS-01',
+      user: user.id,
+      items: [
+        {
+          product: productId,
+          variantId: null,
+          nameSnapshot: 'Cascade Test Saree',
+          priceSnapshot: 2500,
+          qty: 1,
+        },
+      ],
+      shippingAddress: {
+        fullName: 'Customer',
+        phone: '9999999999',
+        line1: 'Line 1',
+        city: 'City',
+        state: 'Tamil Nadu',
+        postalCode: '600001',
+        country: 'India',
+      },
+      itemsTotal: 2500,
+      shippingFee: 40,
+      total: 2540,
+      status: 'delivered',
+      statusHistory: [{ status: 'delivered', changedAt: new Date() }],
+    });
+
+    const revRes = await request(app)
+      .post('/api/v1/reviews')
+      .set(authHeader(user.token))
+      .field('productId', productId)
+      .field('orderId', order._id.toString())
+      .field('rating', 5)
+      .field('comment', 'Amazing saree!')
+      .attach('images', fakeImage, { filename: 'review.jpg', contentType: 'image/jpeg' });
+
+    expect(revRes.status).toBe(201);
+    const reviewId = revRes.body.data.review._id;
+    const reviewImagePublicId = revRes.body.data.review.images[0].publicId;
+    expect(reviewImagePublicId).toBeDefined();
+
+    // 4. Delete the product as admin
+    const delRes = await request(app)
+      .delete(`/api/v1/admin/products/${productId}`)
+      .set('Authorization', `Bearer ${admin.token}`);
+
+    expect(delRes.status).toBe(200);
+
+    // Assert product is deleted
+    expect(await Product.findById(productId)).toBeNull();
+
+    // Assert product image was deleted from Cloudinary
+    expect(deleteCloudinaryImages).toHaveBeenCalledWith(
+      expect.arrayContaining([productImagePublicId]),
+    );
+
+    // Assert review was deleted from DB
+    expect(await Review.findById(reviewId)).toBeNull();
+
+    // Assert review image was deleted from Cloudinary
+    expect(deleteCloudinaryImages).toHaveBeenCalledWith(
+      expect.arrayContaining([reviewImagePublicId]),
+    );
+
+    // Assert cart was cleaned up
+    const cart = await Cart.findOne({ user: user.id });
+    expect(cart?.items.some((item) => item.product.toString() === productId)).toBe(false);
+
+    // Assert wishlist was cleaned up
+    const wishlist = await Wishlist.findOne({ user: user.id });
+    expect(wishlist?.productIds.map(String)).not.toContain(productId);
   });
 });

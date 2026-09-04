@@ -127,7 +127,7 @@ export async function deleteCategory(id: string): Promise<void> {
     );
   }
 
-  if (category.image) {
+  if (category.image?.publicId) {
     await deleteCloudinaryImage(category.image.publicId);
   }
   await category.deleteOne();
