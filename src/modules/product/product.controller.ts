@@ -96,6 +96,11 @@ export const listProducts = asyncHandler(async (req: Request, res: Response) => 
   sendSuccess(res, { products: result.products }, 200, { nextCursor: result.nextCursor });
 });
 
+export const getProductFacets = asyncHandler(async (req: Request, res: Response) => {
+  const facets = await productService.getProductFacets(req.query as unknown as ListProductsQuery);
+  sendSuccess(res, facets);
+});
+
 export const searchProducts = asyncHandler(async (req: Request, res: Response) => {
   const { q, cursor, limit } = req.query as { q: string; cursor?: string; limit?: string };
   if (!q) {

@@ -54,6 +54,25 @@ guaranteed to happen on a live storefront. Cursors don't have that problem.
 Server-side limit is clamped to `MAX_PAGE_LIMIT = 50` (`src/utils/pagination.ts`)
 regardless of what the client requests.
 
+### Price & rating sorting — persisted key + keyset cursor
+`price_asc`/`price_desc` sort on `Product.sortPrice`, a persisted copy of
+`minPrice()` (lowest *active* variant price, or a simple product's `price`)
+kept in sync by a `pre('save')` hook — every price/variant change goes through
+`create()`/`save()`; the only `updateOne` writes (stock, rating) never change
+price. Indexed as `{isActive, sortPrice, _id}` and `{category, isActive,
+sortPrice, _id}`. Non-`newest` sorts page with a `(value, _id)` keyset cursor
+(`encodeSortCursor` in `src/utils/pagination.ts`) — an `_id`-only cursor is
+wrong for these sorts (it skipped/duplicated items) and is rejected with 400.
+Documents created before the field existed are backfilled with
+`npm run migrate:sort-price` (`--dry-run` first; idempotent).
+
+### Filter facets
+`GET /products/facets` returns the colour/fabric values that exist on active
+variants (and product-level fields) for the current filters, with per-product
+counts and a representative `colorCode` swatch. It reuses `buildListFilter()`
+(shared with `listProducts`), omitting each facet's own selection. The
+`color`/`fabric` list filters are comma-separated and case-insensitive.
+
 ### Product schema — simple vs. variant
 A single `Product` collection holds both `type: 'simple'` and `type: 'variant'`
 documents (see `src/models/Product.ts`) rather than two collections, so

@@ -28,7 +28,8 @@
     "deploy": "serverless deploy",
     "deploy:prod": "serverless deploy --stage prod",
     "prepare": "husky",
-    "seed:categories": "ts-node src/seed/category.seed.ts"
+    "seed:categories": "ts-node src/seed/category.seed.ts",
+    "migrate:sort-price": "ts-node --transpile-only scripts/backfill-sort-price.ts"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

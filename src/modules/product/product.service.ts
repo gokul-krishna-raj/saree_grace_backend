@@ -9,7 +9,13 @@ import { Wishlist } from '../../models/Wishlist';
 import { ApiError } from '../../utils/ApiError';
 import { slugify } from '../../utils/slugify';
 import { uploadBufferToCloudinary, deleteCloudinaryImages } from '../../utils/cloudinaryUpload';
-import { clampLimit, decodeCursor, encodeCursor } from '../../utils/pagination';
+import {
+  clampLimit,
+  decodeCursor,
+  decodeSortCursor,
+  encodeCursor,
+  encodeSortCursor,
+} from '../../utils/pagination';
 import {
   AddVariantInput,
   CreateSimpleProductInput,
@@ -605,16 +611,38 @@ export interface ProductListResult {
   nextCursor: string | null;
 }
 
-export async function listProducts(query: ListProductsQuery): Promise<ProductListResult> {
-  const limit = clampLimit(query.limit);
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// Comma-separated, case-insensitive exact matches ("Blue,rama green").
+function toExactPatterns(raw: string): RegExp[] {
+  return raw
+    .split(',')
+    .map((v) => v.trim())
+    .filter(Boolean)
+    .map((v) => new RegExp(`^${escapeRegex(v)}$`, 'i'));
+}
+
+/**
+ * Builds the Mongo filter shared by listProducts() and getProductFacets().
+ * Returns null when a category/occasion reference doesn't resolve (→ empty
+ * result). `omit` lets facet counts ignore their own dimension, so picking
+ * "Blue" doesn't hide the other colour options.
+ */
+async function buildListFilter(
+  query: Partial<ListProductsQuery>,
+  omit: { color?: boolean; fabric?: boolean } = {},
+): Promise<Record<string, unknown> | null> {
   const filter: Record<string, unknown> = { isActive: true };
+  const and: Record<string, unknown>[] = [];
 
   if (query.category) {
     const categoryId = await resolveRefIdOrSlug(
       (slug) => Category.findOne({ slug }),
       query.category,
     );
-    if (!categoryId) return { products: [], nextCursor: null };
+    if (!categoryId) return null;
     filter.category = categoryId;
   }
   if (query.occasion) {
@@ -622,11 +650,29 @@ export async function listProducts(query: ListProductsQuery): Promise<ProductLis
       (slug) => Occasion.findOne({ slug }),
       query.occasion,
     );
-    if (!occasionId) return { products: [], nextCursor: null };
+    if (!occasionId) return null;
     filter.occasions = occasionId;
   }
-  if (query.fabric) filter.fabric = query.fabric;
-  if (query.color) filter.color = query.color;
+  // Colour/fabric live on active variants' attributes in the real catalogue
+  // (product-level fields are rarely set) — match either, case-insensitively.
+  if (query.fabric && !omit.fabric) {
+    const patterns = toExactPatterns(query.fabric);
+    and.push({
+      $or: [
+        { fabric: { $in: patterns } },
+        { variants: { $elemMatch: { isActive: true, 'attributes.fabric': { $in: patterns } } } },
+      ],
+    });
+  }
+  if (query.color && !omit.color) {
+    const patterns = toExactPatterns(query.color);
+    and.push({
+      $or: [
+        { color: { $in: patterns } },
+        { variants: { $elemMatch: { isActive: true, 'attributes.color': { $in: patterns } } } },
+      ],
+    });
+  }
   if (query.loomType) {
     filter.loomType = query.loomType;
   } else if (query.handloomOnly) {
@@ -639,52 +685,203 @@ export async function listProducts(query: ListProductsQuery): Promise<ProductLis
     if (query.maxPrice !== undefined) priceFilter.$lte = query.maxPrice;
     // Simple products use `price`; variant products' cheapest variant uses
     // `variants.price`. Combine with $or so both product types are covered.
-    filter.$or = [{ price: priceFilter }, { 'variants.price': priceFilter }];
+    and.push({ $or: [{ price: priceFilter }, { 'variants.price': priceFilter }] });
   }
 
   if (query.inStockOnly) {
-    filter.$and = [
-      ...(Array.isArray(filter.$and) ? filter.$and : []),
-      { $or: [{ stock: { $gt: 0 } }, { 'variants.stock': { $gt: 0 } }] },
-    ];
+    and.push({ $or: [{ stock: { $gt: 0 } }, { 'variants.stock': { $gt: 0 } }] });
   }
 
-  const sortMap: Record<string, Record<string, 1 | -1>> = {
-    newest: { _id: -1 },
-    price_asc: { price: 1, _id: -1 },
-    price_desc: { price: -1, _id: -1 },
-    top_rated: { ratingAvg: -1, _id: -1 },
-  };
-  const sort = sortMap[query.sort] ?? sortMap.newest;
+  if (and.length > 0) filter.$and = and;
+  return filter;
+}
+
+// Non-newest sorts page with a (sortValue, _id) keyset cursor; newest pages
+// on _id alone. `field` must be a persisted, indexed number.
+const KEYSET_SORTS: Record<string, { field: 'sortPrice' | 'ratingAvg'; dir: 1 | -1 }> = {
+  price_asc: { field: 'sortPrice', dir: 1 },
+  price_desc: { field: 'sortPrice', dir: -1 },
+  top_rated: { field: 'ratingAvg', dir: -1 },
+};
+
+export async function listProducts(query: ListProductsQuery): Promise<ProductListResult> {
+  const limit = clampLimit(query.limit);
+  const filter = await buildListFilter(query);
+  if (!filter) return { products: [], nextCursor: null };
+
+  const keyset = KEYSET_SORTS[query.sort];
+  const sort: Record<string, 1 | -1> = keyset
+    ? { [keyset.field]: keyset.dir, _id: -1 }
+    : { _id: -1 };
 
   if (query.cursor) {
-    const decoded = decodeCursor(query.cursor);
-    if (!decoded) {
-      throw ApiError.badRequest('Invalid pagination cursor');
-    }
-    // Cursor pagination on non-_id sort keys still uses _id as the final
-    // tiebreaker; for simplicity and correctness we cursor strictly on _id
-    // (stable, monotonic, indexed) which guarantees no skip/duplicate even
-    // under concurrent inserts. Sort fields other than newest are best used
-    // with small enough catalogs that a secondary _id cursor is sufficient.
-    if (sort === sortMap.newest) {
-      filter._id = { $lt: decoded };
+    if (keyset) {
+      const decoded = decodeSortCursor(query.cursor);
+      if (!decoded) {
+        throw ApiError.badRequest('Invalid pagination cursor');
+      }
+      // Strictly after the last (value, _id) pair in (value dir, _id desc)
+      // order: a further value, or the same value with a smaller _id.
+      const after = keyset.dir === 1 ? { $gt: decoded.value } : { $lt: decoded.value };
+      const cursorCondition = {
+        $or: [
+          { [keyset.field]: after },
+          { [keyset.field]: decoded.value, _id: { $lt: new Types.ObjectId(decoded.id) } },
+        ],
+      };
+      filter.$and = [
+        ...((filter.$and as Record<string, unknown>[] | undefined) ?? []),
+        cursorCondition,
+      ];
     } else {
-      filter._id = { $gt: decoded };
+      const decoded = decodeCursor(query.cursor);
+      if (!decoded) {
+        throw ApiError.badRequest('Invalid pagination cursor');
+      }
+      filter._id = { $lt: decoded };
     }
   }
 
   const products = await Product.find(filter)
-    .sort(sort as Record<string, 1 | -1>)
+    .sort(sort)
     .limit(limit + 1)
     .populate(PRODUCT_REF_POPULATE);
 
   const hasMore = products.length > limit;
   const page = hasMore ? products.slice(0, limit) : products;
   const last = page[page.length - 1];
-  const nextCursor = hasMore && last ? encodeCursor(last._id) : null;
+  let nextCursor: string | null = null;
+  if (hasMore && last) {
+    nextCursor = keyset
+      ? encodeSortCursor(Number(last.get(keyset.field) ?? 0), last._id)
+      : encodeCursor(last._id);
+  }
 
   return { products: page, nextCursor };
+}
+
+export interface FacetOption {
+  value: string;
+  label: string;
+  count: number;
+  /** A representative swatch colour from the variants' own `colorCode` (colour facet only). */
+  hex?: string;
+}
+
+export interface ProductFacets {
+  colors: FacetOption[];
+  fabrics: FacetOption[];
+}
+
+// "rama green" → "Rama Green". Display only; filtering stays case-insensitive.
+function titleCase(value: string): string {
+  return value.replace(
+    /\w\S*/g,
+    (word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase(),
+  );
+}
+
+async function facetFor(
+  filter: Record<string, unknown>,
+  attribute: 'color' | 'fabric',
+): Promise<FacetOption[]> {
+  const normalise = (path: string) => ({
+    $toLower: { $trim: { input: { $ifNull: [path, ''] } } },
+  });
+  // aggregate() doesn't cast like find() does (string ids, numbers) — cast the
+  // shared filter through a query first.
+  const castFilter = Product.find(filter).cast(Product) as Record<string, unknown>;
+  // One count per product (not per variant) for each distinct value, taken
+  // from active variants' attributes plus the product-level field.
+  const rows = await Product.aggregate<{
+    _id: string;
+    count: number;
+    hexes: Array<Array<string | null>>;
+  }>([
+    { $match: castFilter },
+    {
+      $project: {
+        pairs: {
+          $concatArrays: [
+            {
+              $map: {
+                input: {
+                  $filter: {
+                    input: { $ifNull: ['$variants', []] },
+                    as: 'v',
+                    cond: { $eq: ['$$v.isActive', true] },
+                  },
+                },
+                as: 'v',
+                in: {
+                  value: normalise(`$$v.attributes.${attribute}`),
+                  hex: attribute === 'color' ? '$$v.attributes.colorCode' : null,
+                },
+              },
+            },
+            [{ value: normalise(`$${attribute}`), hex: null }],
+          ],
+        },
+      },
+    },
+    { $unwind: '$pairs' },
+    { $match: { 'pairs.value': { $ne: '' } } },
+    {
+      $group: {
+        _id: { value: '$pairs.value', product: '$_id' },
+        hexes: { $push: '$pairs.hex' },
+      },
+    },
+    { $group: { _id: '$_id.value', count: { $sum: 1 }, hexes: { $push: '$hexes' } } },
+    { $sort: { count: -1, _id: 1 } },
+  ]);
+  return rows.map((row) => {
+    const hex = mostCommon(row.hexes.flat());
+    return {
+      value: row._id,
+      label: titleCase(row._id),
+      count: row.count,
+      ...(hex ? { hex } : {}),
+    };
+  });
+}
+
+// The swatch shown for a colour name is the colorCode its variants use most
+// often (names like "Blue" cover several slightly different shades).
+function mostCommon(values: Array<string | null | undefined>): string | undefined {
+  const counts = new Map<string, number>();
+  for (const raw of values) {
+    const value = raw?.trim().toLowerCase();
+    if (value && /^#([0-9a-f]{3}|[0-9a-f]{6})$/.test(value)) {
+      counts.set(value, (counts.get(value) ?? 0) + 1);
+    }
+  }
+  let best: string | undefined;
+  let bestCount = 0;
+  for (const [value, count] of counts) {
+    if (count > bestCount) {
+      best = value;
+      bestCount = count;
+    }
+  }
+  return best;
+}
+
+/**
+ * Filter options that can actually return products for the current filters
+ * (each dimension ignores its own selection). Values come from the live
+ * catalogue, never a hard-coded list.
+ */
+export async function getProductFacets(query: Partial<ListProductsQuery>): Promise<ProductFacets> {
+  const [colorFilter, fabricFilter] = await Promise.all([
+    buildListFilter(query, { color: true }),
+    buildListFilter(query, { fabric: true }),
+  ]);
+  const [colors, fabrics] = await Promise.all([
+    colorFilter ? facetFor(colorFilter, 'color') : Promise.resolve([]),
+    fabricFilter ? facetFor(fabricFilter, 'fabric') : Promise.resolve([]),
+  ]);
+  return { colors, fabrics };
 }
 
 export async function searchProducts(

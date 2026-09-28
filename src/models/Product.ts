@@ -51,6 +51,11 @@ export interface ProductDocument extends Document {
   seoTitle?: string;
   seoDescription?: string;
 
+  // Persisted copy of minPrice() (lowest active variant price, or the simple
+  // product's price) — kept in sync by the pre('save') hook below so price
+  // sorting can use an index instead of computing per request.
+  sortPrice: number;
+
   ratingAvg: number;
   reviewCount: number;
   isActive: boolean;
@@ -137,6 +142,8 @@ const productSchema = new Schema<ProductDocument>(
     variantAttributeNames: { type: [String], default: [] },
     variants: { type: [productVariantSchema], default: [] },
 
+    sortPrice: { type: Number, default: 0, min: 0 },
+
     ratingAvg: { type: Number, default: 0, min: 0, max: 5 },
     reviewCount: { type: Number, default: 0, min: 0 },
     isActive: { type: Boolean, default: true, index: true },
@@ -154,6 +161,10 @@ productSchema.index({ loomType: 1, isActive: 1 });
 productSchema.index({ occasions: 1, isActive: 1 });
 productSchema.index({ 'variants.sku': 1 }, { unique: true, sparse: true });
 productSchema.index({ type: 1 });
+// Price sort (low→high / high→low) with _id as the keyset tiebreaker — see
+// listProducts() in product.service.ts.
+productSchema.index({ isActive: 1, sortPrice: 1, _id: -1 });
+productSchema.index({ category: 1, isActive: 1, sortPrice: 1, _id: -1 });
 
 productSchema.methods.minPrice = function (this: ProductDocument): number {
   if (this.type === 'simple') {
@@ -167,6 +178,14 @@ productSchema.methods.minPrice = function (this: ProductDocument): number {
   const activePrices = variants.filter((v) => v.isActive).map((v) => v.price);
   return activePrices.length > 0 ? Math.min(...activePrices) : 0;
 };
+
+// Every price/variant change goes through create()/save() (stock and rating
+// are the only fields written with updateOne, and neither affects price), so
+// recomputing here keeps sortPrice correct. Existing documents are backfilled
+// by scripts/backfill-sort-price.ts.
+productSchema.pre('save', function (this: ProductDocument) {
+  this.sortPrice = this.minPrice();
+});
 
 // Serialized on every JSON response (list + detail) so the frontend never
 // has to recompute "starting from ₹X" for variant products itself.

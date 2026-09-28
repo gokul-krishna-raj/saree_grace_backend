@@ -30,7 +30,14 @@ async function upsertAdmin(): Promise<void> {
   }
 
   const passwordHash = await bcrypt.hash(password, 12);
-  await User.create({ name: 'Saree Grace Admin', email, passwordHash, role: 'admin' });
+  // Pre-verified: seed accounts bypass the signup OTP flow so they can sign in immediately.
+  await User.create({
+    name: 'Saree Grace Admin',
+    email,
+    passwordHash,
+    role: 'admin',
+    isVerified: true,
+  });
   logger.info('Seeded admin user', { email, password });
 }
 
@@ -46,6 +53,7 @@ async function upsertCustomer(): Promise<void> {
     email: TEST_CUSTOMER_EMAIL,
     passwordHash,
     role: 'customer',
+    isVerified: true,
   });
   logger.info('Seeded test customer', {
     email: TEST_CUSTOMER_EMAIL,

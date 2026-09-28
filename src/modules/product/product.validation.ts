@@ -215,6 +215,14 @@ export const listProductsQuerySchema = z.object({
   sort: z.enum(['newest', 'price_asc', 'price_desc', 'top_rated']).optional().default('newest'),
 });
 
+// Same filters as the listing, minus pagination/sort — facet counts describe
+// the current filter set, not a page of it.
+export const productFacetsQuerySchema = listProductsQuerySchema.omit({
+  cursor: true,
+  limit: true,
+  sort: true,
+});
+
 export const searchProductsQuerySchema = z.object({
   q: z.string().trim().min(1),
   cursor: z.string().optional(),
@@ -233,3 +241,4 @@ export type UpdateProductInput = z.infer<typeof updateProductSchema>;
 export type AddVariantInput = z.infer<typeof addVariantSchema>;
 export type UpdateVariantInput = z.infer<typeof updateVariantSchema>;
 export type ListProductsQuery = z.infer<typeof listProductsQuerySchema>;
+export type ProductFacetsQuery = z.infer<typeof productFacetsQuerySchema>;

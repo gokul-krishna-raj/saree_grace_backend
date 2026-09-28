@@ -6,6 +6,7 @@ import {
   listProductsQuerySchema,
   searchProductsQuerySchema,
   listBestSellersQuerySchema,
+  productFacetsQuerySchema,
   slugParamSchema,
 } from './product.validation';
 import { productIdParamSchema } from './product.validation';
@@ -18,6 +19,12 @@ router.get(
   '/search',
   validate({ query: searchProductsQuerySchema }),
   productController.searchProducts,
+);
+// Before '/:slug' so "facets" isn't treated as a product slug.
+router.get(
+  '/facets',
+  validate({ query: productFacetsQuerySchema }),
+  productController.getProductFacets,
 );
 router.get(
   '/best-sellers',
