@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import mongoose from 'mongoose';
 import { Category } from '../models/Category';
+import { assertSeedAllowed } from './productionGuard';
 
 type CategorySeed = {
   name: string;
@@ -175,6 +176,7 @@ async function seedCategories(): Promise<void> {
     throw new Error('MONGODB_URI is missing in the environment variables.');
   }
 
+  assertSeedAllowed(mongoUri, 'seed:categories');
   await mongoose.connect(mongoUri);
 
   console.log('Connected to MongoDB.');
