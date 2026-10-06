@@ -53,6 +53,14 @@ const envSchema = z.object({
 
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(900000),
   RATE_LIMIT_MAX: z.coerce.number().int().positive().default(300),
+  // Shared with the storefront's server (Vercel). Server-side renders send it in
+  // `x-internal-api-key` so they don't count against the per-IP global limit — Vercel's few
+  // egress IPs would otherwise exhaust it. Unset = no bypass.
+  // serverless.yml passes '' when the secret isn't configured — treat that as unset.
+  INTERNAL_API_KEY: z.preprocess(
+    (v) => (v === '' ? undefined : v),
+    z.string().min(32, 'INTERNAL_API_KEY must be at least 32 characters').optional(),
+  ),
   AUTH_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(900000),
   AUTH_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(10),
   PAYMENT_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(900000),
