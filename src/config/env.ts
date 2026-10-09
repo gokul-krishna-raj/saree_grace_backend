@@ -49,6 +49,9 @@ const envSchema = z.object({
   APP_URL: z.string().optional(),
   // Falls back to EMAIL_FROM_ADDRESS when unset — see loadEnv() below.
   SUPPORT_EMAIL: z.string().optional(),
+  // Comma-separated inboxes notified when an order is paid. Unset = every
+  // active admin user's email (see triggerAdminNewOrderEmail).
+  ADMIN_NOTIFICATION_EMAILS: z.string().default(''),
   ABANDONED_CART_DELAY_HOURS: z.coerce.number().int().positive().default(24),
 
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(900000),
@@ -74,6 +77,7 @@ export type Env = Omit<z.infer<typeof envSchema>, 'SUPPORT_EMAIL' | 'EMAIL_FROM_
   isProduction: boolean;
   isTest: boolean;
   corsOriginList: string[];
+  adminNotificationEmailList: string[];
   // Always resolved to a concrete string by loadEnv() (falls back to
   // EMAIL_FROM_ADDRESS / EMAIL_USER), unlike the raw optional schema field.
   SUPPORT_EMAIL: string;
@@ -122,6 +126,9 @@ function loadEnv(): Env {
     isTest: data.NODE_ENV === 'test',
     corsOriginList: data.CORS_ORIGINS.split(',')
       .map((origin) => origin.trim())
+      .filter(Boolean),
+    adminNotificationEmailList: data.ADMIN_NOTIFICATION_EMAILS.split(',')
+      .map((email) => email.trim())
       .filter(Boolean),
     EMAIL_FROM_ADDRESS: resolvedFromAddress,
     // No dedicated support inbox configured yet in most environments —

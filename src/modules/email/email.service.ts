@@ -5,11 +5,13 @@ import { logger } from '../../utils/logger';
 import { env } from '../../config/env';
 import {
   buildAbandonedCartEventKey,
+  buildAdminOrderEventKey,
   buildOrderEventKey,
   buildReturnEventKey,
 } from './email.constants';
 import {
   abandonedCartEmailTemplate,
+  adminNewOrderEmailTemplate,
   orderCancelledEmailTemplate,
   orderConfirmationEmailTemplate,
   orderDeliveredEmailTemplate,
@@ -24,6 +26,7 @@ import {
 } from './email.templates';
 import {
   abandonedCartEmailSchema,
+  adminNewOrderEmailSchema,
   orderCancelledEmailSchema,
   orderConfirmationEmailSchema,
   orderDeliveredEmailSchema,
@@ -38,6 +41,7 @@ import {
 } from './email.validation';
 import {
   AbandonedCartEmailData,
+  AdminNewOrderEmailData,
   EmailResult,
   OrderCancelledEmailData,
   OrderConfirmationEmailData,
@@ -314,6 +318,19 @@ export async function sendAbandonedCartEmail(data: AbandonedCartEmailData): Prom
     emailType: 'abandoned-cart',
     recipientEmail: valid.recipientEmail,
     userId: valid.userId,
+    subject,
+    html,
+  });
+}
+
+export async function sendAdminNewOrderEmail(data: AdminNewOrderEmailData): Promise<EmailResult> {
+  const valid = validate(adminNewOrderEmailSchema, data);
+  const { subject, html } = adminNewOrderEmailTemplate(valid);
+  return dispatchEmail({
+    eventKey: buildAdminOrderEventKey(valid.orderId, valid.recipientEmail),
+    emailType: 'admin-new-order',
+    recipientEmail: valid.recipientEmail,
+    orderId: valid.orderId,
     subject,
     html,
   });

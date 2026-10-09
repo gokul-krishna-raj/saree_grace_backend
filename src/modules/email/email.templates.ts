@@ -1,6 +1,7 @@
 import { layout } from '../../utils/emailTemplates';
 import {
   AbandonedCartEmailData,
+  AdminNewOrderEmailData,
   OrderCancelledEmailData,
   OrderConfirmationEmailData,
   OrderDeliveredEmailData,
@@ -307,6 +308,49 @@ export function abandonedCartEmailTemplate(
      <p style="font-weight:bold;">Cart total: ${money(data.cartTotal)}</p>
      ${button(data.cartUrl, 'Return to your cart')}
      ${supportFooter(supportEmail)}`,
+  );
+  return { subject, html };
+}
+
+export function adminNewOrderEmailTemplate(data: AdminNewOrderEmailData): {
+  subject: string;
+  html: string;
+} {
+  const subject = `New paid order: ${data.orderNumber} (${money(data.total)})`;
+  const rows = data.items
+    .map(
+      (item) => `<tr>
+        <td style="padding:8px 0;border-bottom:1px solid #eee;">${item.name}</td>
+        <td style="padding:8px 0;border-bottom:1px solid #eee;text-align:center;">${item.qty}</td>
+        <td style="padding:8px 0;border-bottom:1px solid #eee;text-align:right;">${money(item.subtotal)}</td>
+      </tr>`,
+    )
+    .join('');
+
+  const html = layout(
+    'New order received',
+    `<p>Order <strong>${data.orderNumber}</strong> has been paid and is ready to process.</p>
+     <p>Customer: ${data.customerName}
+        ${data.customerEmail ? `<br/>Email: <a href="mailto:${data.customerEmail}" style="color:#7a1f2b;">${data.customerEmail}</a>` : ''}
+        ${data.customerPhone ? `<br/>Phone: ${data.customerPhone}` : ''}</p>
+     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0;font-size:14px;">
+       <thead><tr>
+         <th style="text-align:left;padding-bottom:8px;">Item</th>
+         <th style="text-align:center;padding-bottom:8px;">Qty</th>
+         <th style="text-align:right;padding-bottom:8px;">Subtotal</th>
+       </tr></thead>
+       <tbody>${rows}</tbody>
+     </table>
+     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:14px;">
+       <tr><td>Items total</td><td style="text-align:right;">${money(data.itemsTotal)}</td></tr>
+       <tr><td>Shipping</td><td style="text-align:right;">${data.shippingFee === 0 ? 'Free' : money(data.shippingFee)}</td></tr>
+       <tr><td style="font-weight:bold;padding-top:8px;">Total paid</td><td style="text-align:right;font-weight:bold;padding-top:8px;">${money(data.total)}</td></tr>
+     </table>
+     <p style="margin-top:16px;">Payment method: ${data.paymentMethod ?? 'Not specified'}<br/>
+        Transaction ID: ${data.transactionId}<br/>
+        Paid on: ${formatDate(data.paymentDate)}</p>
+     <p>Ship to:<br/>${data.deliveryAddressLines.join('<br/>')}</p>
+     ${button(data.adminOrderUrl, 'Open in admin')}`,
   );
   return { subject, html };
 }

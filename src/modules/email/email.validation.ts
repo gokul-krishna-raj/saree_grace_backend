@@ -170,3 +170,21 @@ export const abandonedCartEmailSchema = z.object({
   cartTotal: positiveNumber,
   cartUrl: nonEmptyString,
 });
+
+export const adminNewOrderEmailSchema = z.object({
+  recipientEmail,
+  orderId: nonEmptyString,
+  orderNumber: nonEmptyString,
+  customerName: nonEmptyString,
+  customerEmail: z.string().optional(),
+  customerPhone: z.string().optional(),
+  items: z.array(lineItemSchema).min(1),
+  itemsTotal: positiveNumber,
+  shippingFee: positiveNumber,
+  total: positiveNumber,
+  paymentMethod: z.string().optional(),
+  transactionId: nonEmptyString,
+  paymentDate: z.date(),
+  deliveryAddressLines: z.array(z.string()).min(1),
+  adminOrderUrl: nonEmptyString,
+});

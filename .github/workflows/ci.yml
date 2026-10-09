@@ -83,6 +83,7 @@ jobs:
           EMAIL_PASSWORD: ${{ secrets.DEV_EMAIL_PASSWORD }}
           EMAIL_FROM_ADDRESS: ${{ secrets.DEV_EMAIL_FROM_ADDRESS }}
           APP_URL: ${{ secrets.DEV_APP_URL }}
+          ADMIN_NOTIFICATION_EMAILS: ${{ secrets.DEV_ADMIN_NOTIFICATION_EMAILS }}
 
 # Promoting dev -> staging -> prod is a manual `workflow_dispatch` step (not
 # automatic on every merge) — see docs/deployment.md for the promotion and
