@@ -161,3 +161,21 @@ export interface EmailResult {
   sent: boolean;
   error?: string;
 }
+
+export interface AdminNewOrderEmailData {
+  recipientEmail: string;
+  orderId: string;
+  orderNumber: string;
+  customerName: string;
+  customerEmail?: string;
+  customerPhone?: string;
+  items: EmailLineItem[];
+  itemsTotal: number;
+  shippingFee: number;
+  total: number;
+  paymentMethod?: string;
+  transactionId: string;
+  paymentDate: Date;
+  deliveryAddressLines: string[];
+  adminOrderUrl: string;
+}

@@ -233,6 +233,32 @@ export const listBestSellersQuerySchema = z.object({
   limit: z.coerce.number().int().positive().optional(),
 });
 
+// Bulk CSV import — the CSV travels as a JSON string (the global JSON body
+// limit is 2MB; 1.5MB of CSV leaves room for JSON escaping of quotes/newlines).
+export const MAX_IMPORT_CSV_BYTES = 1.5 * 1024 * 1024;
+export const MAX_IMPORT_COMMIT_KEYS = 25;
+
+const importCsvField = z
+  .string({ required_error: 'csv is required' })
+  .min(1, 'The CSV file is empty')
+  .refine((csv) => Buffer.byteLength(csv, 'utf8') <= MAX_IMPORT_CSV_BYTES, {
+    message: 'The CSV file is larger than 1.5MB — split it into smaller files',
+  });
+
+export const productImportPreviewSchema = z.object({ csv: importCsvField });
+
+export const productImportCommitSchema = z.object({
+  csv: importCsvField,
+  keys: z
+    .array(z.string().trim().min(1).max(300))
+    .min(1, 'Choose at least one product to import')
+    .max(MAX_IMPORT_COMMIT_KEYS, `At most ${MAX_IMPORT_COMMIT_KEYS} products per request`)
+    .transform((keys) => [...new Set(keys)]),
+});
+
+export type ProductImportPreviewInput = z.infer<typeof productImportPreviewSchema>;
+export type ProductImportCommitInput = z.infer<typeof productImportCommitSchema>;
+
 export type CreateSimpleProductInput = z.infer<typeof createSimpleProductSchema>;
 export type CreateVariantShellInput = z.infer<typeof createVariantShellProductSchema>;
 export type CreateVariantProductInput = z.infer<typeof createVariantProductSchema>;

@@ -15,6 +15,7 @@ import { Category } from '../src/models/Category';
 import { Product } from '../src/models/Product';
 import { slugify } from '../src/utils/slugify';
 import { logger } from '../src/utils/logger';
+import { assertSeedAllowed } from '../src/seed/productionGuard';
 
 const TEST_CUSTOMER_EMAIL = 'customer@example.com';
 const TEST_CUSTOMER_PASSWORD = 'Customer123!';
@@ -136,6 +137,7 @@ async function upsertVariantProduct(categoryId: mongoose.Types.ObjectId): Promis
 }
 
 async function main(): Promise<void> {
+  assertSeedAllowed(env.MONGODB_URI, 'seed');
   await mongoose.connect(env.MONGODB_URI);
   logger.info('Connected to MongoDB for seeding');
 

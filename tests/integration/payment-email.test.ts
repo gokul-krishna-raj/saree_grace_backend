@@ -95,6 +95,41 @@ describe('Payment & refund emails', () => {
     sendEmailSpy.mockRestore();
   });
 
+  it('emails every active admin once an order is paid, and not before', async () => {
+    mockRazorpay();
+    const sendEmailSpy = jest.spyOn(mailer, 'sendEmail').mockResolvedValue(undefined);
+    const admin = await createAdmin();
+    const user = await createUser();
+    const { orderId } = await makeOrder(user.token);
+    await request(app)
+      .post('/api/v1/payments/create-order')
+      .set(authHeader(user.token))
+      .send({ orderId });
+
+    const adminEventKey = `${orderId}:admin-new-order:${admin.email.toLowerCase()}`;
+    expect(await EmailNotification.findOne({ eventKey: adminEventKey })).toBeNull();
+
+    const razorpayPaymentId = 'pay_mock_admin';
+    const signature = crypto
+      .createHmac('sha256', env.RAZORPAY_KEY_SECRET as string)
+      .update(`order_mockRP1|${razorpayPaymentId}`)
+      .digest('hex');
+    await request(app)
+      .post('/api/v1/payments/verify')
+      .set(authHeader(user.token))
+      .send({ razorpayOrderId: 'order_mockRP1', razorpayPaymentId, razorpaySignature: signature });
+
+    const record = await EmailNotification.findOne({ eventKey: adminEventKey });
+    expect(record?.status).toBe('sent');
+    expect(record?.emailType).toBe('admin-new-order');
+    expect(sendEmailSpy).toHaveBeenCalledWith(
+      admin.email,
+      expect.stringContaining('New paid order'),
+      expect.any(String),
+    );
+    sendEmailSpy.mockRestore();
+  });
+
   it('never sends a payment-success email for an unverified/tampered signature', async () => {
     mockRazorpay();
     const sendEmailSpy = jest.spyOn(mailer, 'sendEmail').mockResolvedValue(undefined);

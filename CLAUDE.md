@@ -151,6 +151,34 @@ issues a brand new token and marks the old one `revoked`; presenting an
 already-revoked token revokes the entire session chain for that user (reuse
 detection).
 
+### Bulk product CSV import/export
+Admin-only, under `/admin/products` (registered before the `/:id` routes):
+`GET /export`, `GET /import/template`, `POST /import/preview` (`{ csv }`,
+writes nothing) and `POST /import/commit` (`{ csv, keys }`, ≤25 keys). Code:
+`src/utils/csv.ts` (dependency-free RFC 4180 parser/serializer) and
+`src/modules/product/product-io.service.ts`.
+- One row per sellable SKU. A variant product is several rows sharing a
+  `handle` (= slug, the match key); product columns only on its first row.
+  A simple row with no handle matches by SKU. Never by name.
+- Preview and commit share `planGroup()`, which applies the rows onto a
+  Product document in memory. Commit re-plans the CSV server-side (the
+  client's preview is never trusted), re-reads each product with
+  `findById` right before applying, and saves with `save()` so the
+  `sortPrice` hook runs. Products are applied sequentially, each in its own
+  try/catch; it stops starting new ones after ~20s (Lambda timeout is 25s)
+  and reports the rest as `skipped`.
+- Blank cell = keep the current value. Import never deletes products,
+  variants or Cloudinary images; hiding is `productActive`/`variantActive`
+  = FALSE, and `compareAtPrice` 0 clears it. Renaming keeps the slug.
+  Categories/occasions are never auto-created.
+- Images: URLs already on the product are reused (no re-upload); new URLs
+  are fetched by Cloudinary itself (`uploadRemoteImageToCloudinary`,
+  concurrency 4), so nothing is buffered in Lambda. Removed images are
+  unlinked, not destroyed.
+- Export includes inactive products (oldest first), starts with a UTF-8 BOM
+  for Excel, and prefixes cells starting with `= + - @` with `'` (stripped
+  again on import). Limits: 1.5MB of CSV, 2000 rows, 10 images per row.
+
 ### Lambda connection reuse
 `src/config/db.ts` caches the Mongoose connection at module scope. `lambda.ts`
 sets `context.callbackWaitsForEmptyEventLoop = false` and awaits

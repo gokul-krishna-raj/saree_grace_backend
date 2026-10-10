@@ -77,11 +77,13 @@ jobs:
           RAZORPAY_KEY_ID: ${{ secrets.DEV_RAZORPAY_KEY_ID }}
           RAZORPAY_KEY_SECRET: ${{ secrets.DEV_RAZORPAY_KEY_SECRET }}
           RAZORPAY_WEBHOOK_SECRET: ${{ secrets.DEV_RAZORPAY_WEBHOOK_SECRET }}
+          INTERNAL_API_KEY: ${{ secrets.DEV_INTERNAL_API_KEY }}
           EMAIL_HOST: ${{ secrets.DEV_EMAIL_HOST }}
           EMAIL_USER: ${{ secrets.DEV_EMAIL_USER }}
           EMAIL_PASSWORD: ${{ secrets.DEV_EMAIL_PASSWORD }}
           EMAIL_FROM_ADDRESS: ${{ secrets.DEV_EMAIL_FROM_ADDRESS }}
           APP_URL: ${{ secrets.DEV_APP_URL }}
+          ADMIN_NOTIFICATION_EMAILS: ${{ secrets.DEV_ADMIN_NOTIFICATION_EMAILS }}
 
 # Promoting dev -> staging -> prod is a manual `workflow_dispatch` step (not
 # automatic on every merge) — see docs/deployment.md for the promotion and

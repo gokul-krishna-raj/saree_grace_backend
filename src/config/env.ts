@@ -49,10 +49,21 @@ const envSchema = z.object({
   APP_URL: z.string().optional(),
   // Falls back to EMAIL_FROM_ADDRESS when unset — see loadEnv() below.
   SUPPORT_EMAIL: z.string().optional(),
+  // Comma-separated inboxes notified when an order is paid. Unset = every
+  // active admin user's email (see triggerAdminNewOrderEmail).
+  ADMIN_NOTIFICATION_EMAILS: z.string().default(''),
   ABANDONED_CART_DELAY_HOURS: z.coerce.number().int().positive().default(24),
 
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(900000),
   RATE_LIMIT_MAX: z.coerce.number().int().positive().default(300),
+  // Shared with the storefront's server (Vercel). Server-side renders send it in
+  // `x-internal-api-key` so they don't count against the per-IP global limit — Vercel's few
+  // egress IPs would otherwise exhaust it. Unset = no bypass.
+  // serverless.yml passes '' when the secret isn't configured — treat that as unset.
+  INTERNAL_API_KEY: z.preprocess(
+    (v) => (v === '' ? undefined : v),
+    z.string().min(32, 'INTERNAL_API_KEY must be at least 32 characters').optional(),
+  ),
   AUTH_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(900000),
   AUTH_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(10),
   PAYMENT_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(900000),
@@ -66,6 +77,7 @@ export type Env = Omit<z.infer<typeof envSchema>, 'SUPPORT_EMAIL' | 'EMAIL_FROM_
   isProduction: boolean;
   isTest: boolean;
   corsOriginList: string[];
+  adminNotificationEmailList: string[];
   // Always resolved to a concrete string by loadEnv() (falls back to
   // EMAIL_FROM_ADDRESS / EMAIL_USER), unlike the raw optional schema field.
   SUPPORT_EMAIL: string;
@@ -114,6 +126,9 @@ function loadEnv(): Env {
     isTest: data.NODE_ENV === 'test',
     corsOriginList: data.CORS_ORIGINS.split(',')
       .map((origin) => origin.trim())
+      .filter(Boolean),
+    adminNotificationEmailList: data.ADMIN_NOTIFICATION_EMAILS.split(',')
+      .map((email) => email.trim())
       .filter(Boolean),
     EMAIL_FROM_ADDRESS: resolvedFromAddress,
     // No dedicated support inbox configured yet in most environments —

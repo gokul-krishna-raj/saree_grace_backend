@@ -12,7 +12,8 @@ export type EmailType =
   | 'refund-initiated'
   | 'refund-completed'
   | 'return-status'
-  | 'abandoned-cart';
+  | 'abandoned-cart'
+  | 'admin-new-order';
 
 export type EmailNotificationStatus = 'pending' | 'sent' | 'failed';
 
@@ -53,6 +54,7 @@ const emailNotificationSchema = new Schema<EmailNotificationDocument>(
         'refund-completed',
         'return-status',
         'abandoned-cart',
+        'admin-new-order',
       ],
       required: true,
     },

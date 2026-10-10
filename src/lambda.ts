@@ -17,20 +17,22 @@ export const handler: Handler = async (event, context) => {
   try {
     await connectToDatabase();
   } catch (error) {
+    // The real cause (driver message, host names) is logged only — clients get a generic 503 in
+    // the usual error shape, so the storefront treats it as a transient failure, not a 404.
     logger.error('Failed to connect to MongoDB in Lambda handler', {
       error: (error as Error).message,
       stack: (error as Error).stack,
     });
     return {
-      statusCode: 500,
+      statusCode: 503,
       headers: {
         'content-type': 'application/json',
         'access-control-allow-origin': '*',
+        'retry-after': '5',
       },
       body: JSON.stringify({
         success: false,
-        message: 'Database connection failed',
-        error: (error as Error).message,
+        error: { message: 'Service temporarily unavailable' },
       }),
     };
   }

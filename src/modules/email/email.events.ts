@@ -4,6 +4,7 @@ import { User } from '../../models/User';
 import { env } from '../../config/env';
 import { logger } from '../../utils/logger';
 import {
+  sendAdminNewOrderEmail,
   sendOrderCancelledEmail,
   sendOrderConfirmationEmail,
   sendOrderDeliveredEmail,
@@ -15,6 +16,16 @@ import {
 
 function orderViewUrl(orderId: string): string {
   return `${env.APP_URL}/account/orders/${orderId}`;
+}
+
+function deliveryAddressLines(order: OrderDocument): string[] {
+  return [
+    order.shippingAddress?.fullName,
+    order.shippingAddress?.line1,
+    order.shippingAddress?.line2,
+    `${order.shippingAddress?.city ?? ''}, ${order.shippingAddress?.state ?? ''} ${order.shippingAddress?.postalCode ?? ''}`.trim(),
+    order.shippingAddress?.country,
+  ].filter((line): line is string => Boolean(line && line !== ','));
 }
 
 /**
@@ -51,13 +62,7 @@ export async function triggerOrderConfirmationEmail(order: OrderDocument): Promi
       total: order.total,
       paymentMethod: order.payment?.method,
       paymentStatus: order.status,
-      deliveryAddressLines: [
-        order.shippingAddress?.fullName,
-        order.shippingAddress?.line1,
-        order.shippingAddress?.line2,
-        `${order.shippingAddress?.city ?? ''}, ${order.shippingAddress?.state ?? ''} ${order.shippingAddress?.postalCode ?? ''}`.trim(),
-        order.shippingAddress?.country,
-      ].filter((line): line is string => Boolean(line && line !== ',')),
+      deliveryAddressLines: deliveryAddressLines(order),
       viewOrderUrl: orderViewUrl(order._id.toString()),
     });
   } catch (err) {
@@ -156,6 +161,64 @@ export async function triggerOrderStatusEmail(
     logger.error('Failed to send order status email', {
       orderId: order._id.toString(),
       to,
+      error: (err as Error).message,
+    });
+  }
+}
+
+/**
+ * Called from transitionOrderStatus() when an order becomes 'paid' — the
+ * point where an order is actually confirmed (a freshly created order is
+ * still 'pending' and may never be paid). Recipients are
+ * ADMIN_NOTIFICATION_EMAILS, or every active admin user when that's unset.
+ * Never throws, same as the customer emails.
+ */
+export async function triggerAdminNewOrderEmail(order: OrderDocument): Promise<void> {
+  try {
+    const recipients =
+      env.adminNotificationEmailList.length > 0
+        ? env.adminNotificationEmailList
+        : (await User.find({ role: 'admin', isActive: true }).select('email').lean()).map(
+            (admin) => admin.email,
+          );
+    if (recipients.length === 0) {
+      logger.warn('Skipping admin new-order email — no recipients configured', {
+        orderId: order._id.toString(),
+      });
+      return;
+    }
+
+    const customer = await User.findById(order.user).select('name email').lean();
+    const orderId = order._id.toString();
+    const data = {
+      orderId,
+      orderNumber: order.orderNumber,
+      customerName: customer?.name ?? order.shippingAddress?.fullName ?? 'Unknown customer',
+      customerEmail: customer?.email,
+      customerPhone: order.shippingAddress?.phone,
+      items: order.items.map((item) => ({
+        name: item.nameSnapshot,
+        qty: item.qty,
+        unitPrice: item.priceSnapshot,
+        subtotal: item.priceSnapshot * item.qty,
+      })),
+      itemsTotal: order.itemsTotal,
+      shippingFee: order.shippingFee,
+      total: order.payment?.amountPaid ?? order.total,
+      paymentMethod: order.payment?.method,
+      transactionId: order.payment?.razorpayPaymentId ?? 'unknown',
+      paymentDate: order.payment?.paidAt ?? new Date(),
+      deliveryAddressLines: deliveryAddressLines(order),
+      adminOrderUrl: `${env.APP_URL}/admin/orders/${orderId}`,
+    };
+
+    // allSettled: one bad inbox must not stop the others from being notified.
+    await Promise.allSettled(
+      recipients.map((recipientEmail) => sendAdminNewOrderEmail({ ...data, recipientEmail })),
+    );
+  } catch (err) {
+    logger.error('Failed to send admin new-order email', {
+      orderId: order._id.toString(),
       error: (err as Error).message,
     });
   }

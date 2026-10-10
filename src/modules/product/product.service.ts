@@ -64,7 +64,7 @@ const PRODUCT_REF_POPULATE = [
   { path: 'occasions', select: 'name slug' },
 ];
 
-async function generateUniqueProductSlug(name: string, excludeId?: string): Promise<string> {
+export async function generateUniqueProductSlug(name: string, excludeId?: string): Promise<string> {
   const base = slugify(name);
   let candidate = base;
   let suffix = 1;

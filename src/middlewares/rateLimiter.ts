@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import rateLimit from 'express-rate-limit';
 import { Request, Response } from 'express';
 import { env } from '../config/env';
@@ -29,13 +30,33 @@ export function isAdminRequest(req: Request): boolean {
   }
 }
 
+export const INTERNAL_API_KEY_HEADER = 'x-internal-api-key';
+
+function sha256(value: string): Buffer {
+  return crypto.createHash('sha256').update(value).digest();
+}
+
+/**
+ * True only for the storefront's own server-side requests, which carry the
+ * shared INTERNAL_API_KEY. Compared via fixed-length digests so the check is
+ * constant-time regardless of the presented value's length. Grants nothing
+ * except skipping the global per-IP limit.
+ */
+export function isInternalRequest(req: Request, expectedKey = env.INTERNAL_API_KEY): boolean {
+  const presented = req.headers[INTERNAL_API_KEY_HEADER];
+  if (!expectedKey || typeof presented !== 'string' || presented.length === 0) {
+    return false;
+  }
+  return crypto.timingSafeEqual(sha256(presented), sha256(expectedKey));
+}
+
 export const globalRateLimiter = rateLimit({
   windowMs: env.RATE_LIMIT_WINDOW_MS,
   max: env.RATE_LIMIT_MAX,
   standardHeaders: true,
   legacyHeaders: false,
   handler: rateLimitHandler,
-  skip: isAdminRequest,
+  skip: (req) => isAdminRequest(req) || isInternalRequest(req),
 });
 
 export const authRateLimiter = rateLimit({

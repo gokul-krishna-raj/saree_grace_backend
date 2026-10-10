@@ -9,7 +9,11 @@ import { clampLimit, decodeCursor, encodeCursor } from '../../utils/pagination';
 import { assertValidTransition, STOCK_RESTORING_STATUSES } from './orderStateMachine';
 import { restoreStock } from '../product/product.service';
 import { CreateOrderInput, ListOrdersQuery, UpdateOrderStatusInput } from './order.validation';
-import { triggerOrderConfirmationEmail, triggerOrderStatusEmail } from '../email/email.events';
+import {
+  triggerAdminNewOrderEmail,
+  triggerOrderConfirmationEmail,
+  triggerOrderStatusEmail,
+} from '../email/email.events';
 
 // State-tiered shipping: cheapest for Tamil Nadu (home state), a mid tier for the
 // neighboring South Indian states, flat rate elsewhere. Keyed lowercase/trimmed so
@@ -290,6 +294,9 @@ export async function transitionOrderStatus(
 
   await order.save();
   await triggerOrderStatusEmail(order, to);
+  if (to === 'paid') {
+    await triggerAdminNewOrderEmail(order);
+  }
   return order;
 }
 

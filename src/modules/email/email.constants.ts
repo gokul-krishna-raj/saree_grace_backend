@@ -16,6 +16,11 @@ export const buildOrderEventKey = (
     | 'refund-completed',
 ): string => `${orderId}:${event}`;
 
+// One record per admin inbox, so a failure for one recipient doesn't block
+// (or get masked by) a successful send to another.
+export const buildAdminOrderEventKey = (orderId: string, recipientEmail: string): string =>
+  `${orderId}:admin-new-order:${recipientEmail.toLowerCase()}`;
+
 export const buildReturnEventKey = (returnId: string, status: ReturnStatus): string =>
   `${returnId}:${status}`;
 

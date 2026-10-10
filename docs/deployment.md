@@ -1,5 +1,35 @@
 # Deployment & Operations Runbook
 
+## Environment reality (read this first)
+
+The stage layout described under "Stages" below is the intended design. What is
+actually deployed today (October 2026) is different:
+
+| What | Reality |
+|---|---|
+| Live storefront | `https://www.sareegrace.in` (Vercel, functions in `bom1` Mumbai) |
+| Backend serving it | the **`dev`** stage — `https://tx13p1f175.execute-api.ap-south-1.amazonaws.com/dev/api/v1` (Lambda, `ap-south-1`) |
+| Database | Atlas cluster **`sareegrace.04wvuqd`** (database `sareegrace`), M0 free tier, AWS `ap-south-1` |
+| Vercel Preview deployments | the same `dev` stage, so the same live database |
+| Deploys | every push to `main` deploys `dev` via CI, which means **merging to `main` is a production release** |
+| `prod` stage | exists in Serverless state but nothing uses it |
+| `staging` | does not exist |
+
+Rules until a real staging environment exists:
+
+- Treat the `dev` stage and cluster `04wvuqd` as **production**.
+- Never run `npm run seed` / `npm run seed:categories` against it. Both refuse
+  when `MONGODB_URI` contains `04wvuqd` unless `FORCE_SEED=yes` is set
+  (`src/seed/productionGuard.ts`).
+- Data migrations (`migrate:*`) run against it only deliberately, with
+  `--dry-run` first.
+- Never place test orders on a Preview deployment (it points at `/dev/`).
+- The local `.env` currently points at the live cluster too; for local
+  development use a local MongoDB (`mongodb://127.0.0.1:27017/sareegrace`).
+
+Planned fix: a separate `staging` stage with its own free Atlas cluster and
+Razorpay test keys, used by Vercel Preview.
+
 ## Stages
 
 Three stages, each an isolated set of AWS resources (Lambda function, API

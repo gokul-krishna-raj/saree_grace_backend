@@ -37,6 +37,17 @@ jest.mock('../src/utils/cloudinaryUpload', () => ({
     width: 800,
     height: 800,
   })),
+  // Cloudinary fetches remote URLs itself — the mock just mints a distinct
+  // Cloudinary URL per source URL, like the real upload would.
+  uploadRemoteImageToCloudinary: jest.fn().mockImplementation(async (url: string) => {
+    const id = `remote-${Buffer.from(url).toString('base64url').slice(-16)}-${Math.random().toString(36).slice(2, 8)}`;
+    return {
+      url: `https://res.cloudinary.com/test/image/upload/${id}.jpg`,
+      publicId: id,
+      width: 800,
+      height: 800,
+    };
+  }),
   deleteCloudinaryImage: jest.fn().mockResolvedValue(undefined),
   deleteCloudinaryImages: jest.fn().mockResolvedValue(undefined),
 }));

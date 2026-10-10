@@ -70,6 +70,9 @@ export function errorHandler(err: unknown, req: Request, res: Response, _next: N
     requestId,
     message,
     stack: err instanceof Error ? err.stack : undefined,
+    // Some SDKs (e.g. Razorpay) reject with plain objects, not Errors —
+    // log the raw value so the real cause isn't lost.
+    raw: err instanceof Error ? undefined : err,
   });
   sendError(res, 500, 'Internal server error');
 }
