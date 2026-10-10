@@ -42,6 +42,8 @@ export function createApp(): Express {
         callback(ApiError.forbidden(`Origin ${origin} is not allowed by CORS policy`));
       },
       credentials: true,
+      // Lets the admin UI read the filename of CSV downloads (product export).
+      exposedHeaders: ['Content-Disposition'],
     }),
   );
 

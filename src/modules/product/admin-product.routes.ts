@@ -3,6 +3,7 @@ import { requireAuth, requireAdmin } from '../../middlewares/auth';
 import { validate } from '../../middlewares/validate';
 import { uploadImages } from '../../middlewares/upload';
 import * as productController from './product.controller';
+import * as productIoController from './product-io.controller';
 import {
   createProductSchema,
   updateProductSchema,
@@ -10,11 +11,28 @@ import {
   updateVariantSchema,
   productIdParamSchema,
   variantParamSchema,
+  productImportPreviewSchema,
+  productImportCommitSchema,
 } from './product.validation';
 
 const router = Router();
 
 router.use(requireAuth, requireAdmin);
+
+// Bulk CSV export/import — registered before the /:id routes so "export"
+// and "import" are never captured as an :id.
+router.get('/export', productIoController.exportProducts);
+router.get('/import/template', productIoController.getImportTemplate);
+router.post(
+  '/import/preview',
+  validate({ body: productImportPreviewSchema }),
+  productIoController.previewImport,
+);
+router.post(
+  '/import/commit',
+  validate({ body: productImportCommitSchema }),
+  productIoController.commitImport,
+);
 
 router.post(
   '/',

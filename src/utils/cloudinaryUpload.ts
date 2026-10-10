@@ -50,3 +50,25 @@ export async function deleteCloudinaryImages(publicIds: string[]): Promise<void>
   if (publicIds.length === 0) return;
   await Promise.all(publicIds.map((id) => deleteCloudinaryImage(id)));
 }
+
+/**
+ * Has Cloudinary fetch a remote http(s) image itself (used by the bulk CSV
+ * product import) — the bytes never pass through Lambda, so there's no
+ * buffering and no API Gateway payload limit to worry about. Callers bound
+ * their own concurrency.
+ */
+export async function uploadRemoteImageToCloudinary(
+  url: string,
+  options: { folder?: string } = {},
+): Promise<UploadedImage> {
+  const uploaded = await cloudinary.uploader.upload(url, {
+    folder: options.folder ?? env.CLOUDINARY_UPLOAD_FOLDER,
+    resource_type: 'image',
+  });
+  return {
+    url: uploaded.secure_url,
+    publicId: uploaded.public_id,
+    width: uploaded.width,
+    height: uploaded.height,
+  };
+}
