@@ -4,12 +4,11 @@ import cors from 'cors';
 import compression from 'compression';
 import morgan from 'morgan';
 import { env } from './config/env';
-import { ApiError } from './utils/ApiError';
+import { corsOptions } from './config/cors';
 import { requestContext, requestLogger } from './middlewares/requestContext';
 import { sanitizeInput } from './middlewares/sanitize';
 import { globalRateLimiter } from './middlewares/rateLimiter';
 import { errorHandler, notFoundHandler } from './middlewares/errorHandler';
-import { logger } from './utils/logger';
 import routes from './routes';
 import healthRoutes from './modules/health/health.routes';
 
@@ -25,27 +24,9 @@ export function createApp(): Express {
     }),
   );
 
-  app.use(
-    cors({
-      origin: (origin, callback) => {
-        // Allow non-browser clients (no Origin header, e.g. curl, mobile) and
-        // any origin explicitly present in CORS_ORIGINS.
-        if (!origin || env.corsOriginList.includes(origin)) {
-          callback(null, true);
-          return;
-        }
-        // A plain Error here would fall through errorHandler's generic
-        // catch-all as an indistinguishable 500 — an ApiError gives a clean
-        // 403 that's obviously a CORS/config mismatch, not a server bug.
-        // Logged explicitly since ApiError below 500 isn't otherwise logged.
-        logger.warn('Rejected CORS origin', { origin, allowed: env.corsOriginList });
-        callback(ApiError.forbidden(`Origin ${origin} is not allowed by CORS policy`));
-      },
-      credentials: true,
-      // Lets the admin UI read the filename of CSV downloads (product export).
-      exposedHeaders: ['Content-Disposition'],
-    }),
-  );
+  // Ahead of rate limiters, auth and routes: preflights are answered here, and
+  // every later response — including 401/403/500 from errorHandler — carries CORS headers.
+  app.use(cors(corsOptions));
 
   app.use(compression());
   app.use(
