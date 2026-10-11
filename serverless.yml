@@ -19,7 +19,7 @@ provider:
   environment:
     NODE_ENV: ${env:NODE_ENV, 'development'}
     API_BASE_PATH: ${env:API_BASE_PATH, '/api/v1'}
-    CORS_ORIGINS: ${env:CORS_ORIGINS, ''}
+    CORS_ORIGINS: ${env:CORS_ORIGINS, 'https://www.sareegrace.in,https://sareegrace.in,http://localhost:3000'}
     MONGODB_URI: ${env:MONGODB_URI, ''}
     JWT_ACCESS_SECRET: ${env:JWT_ACCESS_SECRET, ''}
     JWT_REFRESH_SECRET: ${env:JWT_REFRESH_SECRET, ''}
@@ -107,3 +107,35 @@ functions:
     timeout: 60
     events:
       - schedule: rate(1 hour)
+
+# Errors API Gateway produces itself (Lambda crash/timeout -> 502/504,
+# throttling -> 429, init failure) never reach Express, so they'd otherwise
+# have no CORS headers and the browser would hide them behind a CORS error.
+# Origin is echoed because these bodies are API Gateway's generic messages,
+# never user data; Express enforces the real allow-list on every other response.
+resources:
+  Resources:
+    GatewayResponseDefault4XX:
+      Type: AWS::ApiGateway::GatewayResponse
+      Properties:
+        ResponseType: DEFAULT_4XX
+        RestApiId:
+          Ref: ApiGatewayRestApi
+        ResponseParameters:
+          gatewayresponse.header.Access-Control-Allow-Origin: method.request.header.Origin
+          gatewayresponse.header.Access-Control-Allow-Credentials: "'true'"
+          gatewayresponse.header.Access-Control-Allow-Headers: "'Content-Type,Authorization'"
+          gatewayresponse.header.Access-Control-Allow-Methods: "'GET,POST,PUT,PATCH,DELETE,OPTIONS'"
+          gatewayresponse.header.Vary: "'Origin'"
+    GatewayResponseDefault5XX:
+      Type: AWS::ApiGateway::GatewayResponse
+      Properties:
+        ResponseType: DEFAULT_5XX
+        RestApiId:
+          Ref: ApiGatewayRestApi
+        ResponseParameters:
+          gatewayresponse.header.Access-Control-Allow-Origin: method.request.header.Origin
+          gatewayresponse.header.Access-Control-Allow-Credentials: "'true'"
+          gatewayresponse.header.Access-Control-Allow-Headers: "'Content-Type,Authorization'"
+          gatewayresponse.header.Access-Control-Allow-Methods: "'GET,POST,PUT,PATCH,DELETE,OPTIONS'"
+          gatewayresponse.header.Vary: "'Origin'"

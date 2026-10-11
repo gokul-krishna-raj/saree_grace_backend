@@ -2,6 +2,7 @@ import serverlessHttp from 'serverless-http';
 import { Handler } from 'aws-lambda';
 import { createApp } from './app';
 import { connectToDatabase } from './config/db';
+import { corsHeadersFor } from './config/cors';
 import { logger } from './utils/logger';
 
 // Created once per Lambda container (cold start) and reused across warm
@@ -27,7 +28,8 @@ export const handler: Handler = async (event, context) => {
       statusCode: 503,
       headers: {
         'content-type': 'application/json',
-        'access-control-allow-origin': '*',
+        // Not '*': browsers reject a wildcard on credentialed requests.
+        ...corsHeadersFor(event?.headers?.origin ?? event?.headers?.Origin),
         'retry-after': '5',
       },
       body: JSON.stringify({

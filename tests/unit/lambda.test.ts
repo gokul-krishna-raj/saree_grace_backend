@@ -29,4 +29,24 @@ describe('lambda handler — database unavailable', () => {
       expect.objectContaining({ error: expect.stringContaining('Server selection timed out') }),
     );
   });
+
+  it('echoes an allowed Origin on the 503 so the browser can read it', async () => {
+    jest.spyOn(logger, 'error').mockImplementation(() => undefined);
+    const context = { callbackWaitsForEmptyEventLoop: true } as Context;
+
+    const allowed = await handler(
+      { headers: { origin: 'http://localhost:3000' } },
+      context,
+      () => undefined,
+    );
+    expect(allowed.headers['access-control-allow-origin']).toBe('http://localhost:3000');
+    expect(allowed.headers['access-control-allow-credentials']).toBe('true');
+
+    const other = await handler(
+      { headers: { Origin: 'https://evil.example' } },
+      context,
+      () => undefined,
+    );
+    expect(other.headers['access-control-allow-origin']).toBeUndefined();
+  });
 });

@@ -69,7 +69,8 @@ jobs:
           MONGODB_URI: ${{ secrets.DEV_MONGODB_URI }}
           JWT_ACCESS_SECRET: ${{ secrets.DEV_JWT_ACCESS_SECRET }}
           JWT_REFRESH_SECRET: ${{ secrets.DEV_JWT_REFRESH_SECRET }}
-          CORS_ORIGINS: ${{ secrets.DEV_CORS_ORIGINS }}
+          # Not a secret — kept in plain sight so a wrong value is visible in review.
+          CORS_ORIGINS: https://www.sareegrace.in,https://sareegrace.in,http://localhost:3000
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
           CLOUDINARY_CLOUD_NAME: ${{ secrets.CLOUDINARY_CLOUD_NAME }}
           CLOUDINARY_API_KEY: ${{ secrets.CLOUDINARY_API_KEY }}
