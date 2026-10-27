@@ -35,7 +35,10 @@ jobs:
           NODE_ENV: test
 
       - name: npm audit (production dependencies only)
-        run: npm audit --omit=dev --audit-level=high
+        # Same high/critical bar as `npm audit --audit-level=high`, minus the reviewed
+        # allowlist in .github/scripts/audit-gate.mjs. `|| true`: npm audit exits non-zero
+        # whenever it finds anything; the gate script decides whether CI fails.
+        run: (npm audit --omit=dev --json || true) | node .github/scripts/audit-gate.mjs
 
       - name: Build
         run: npm run build
