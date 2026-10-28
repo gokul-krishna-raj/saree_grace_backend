@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { Types } from 'mongoose';
+import { pincodeSchema } from '../shipping/shipping.validation';
 
 const objectId = z.string().refine((v) => Types.ObjectId.isValid(v), { message: 'Invalid id' });
 
@@ -14,7 +15,7 @@ export const addressInputSchema = z.object({
   line2: z.string().trim().max(200).optional(),
   city: z.string().trim().min(2).max(100),
   state: z.string().trim().min(2).max(100),
-  postalCode: z.string().trim().min(3).max(15),
+  postalCode: pincodeSchema,
   country: z.string().trim().min(2).max(100).default('India'),
   isDefault: z.boolean().optional().default(false),
 });

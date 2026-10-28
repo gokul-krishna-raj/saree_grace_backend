@@ -8,31 +8,13 @@ import { logger } from '../../utils/logger';
 import { clampLimit, decodeCursor, encodeCursor } from '../../utils/pagination';
 import { assertValidTransition, STOCK_RESTORING_STATUSES } from './orderStateMachine';
 import { restoreStock } from '../product/product.service';
+import { quoteShipping } from '../shipping/shipping.service';
 import { CreateOrderInput, ListOrdersQuery, UpdateOrderStatusInput } from './order.validation';
 import {
   triggerAdminNewOrderEmail,
   triggerOrderConfirmationEmail,
   triggerOrderStatusEmail,
 } from '../email/email.events';
-
-// State-tiered shipping: cheapest for Tamil Nadu (home state), a mid tier for the
-// neighboring South Indian states, flat rate elsewhere. Keyed lowercase/trimmed so
-// casing differences between clients never fall through to the default tier.
-const SHIPPING_FEE_BY_STATE: Record<string, number> = {
-  'tamil nadu': 40,
-  kerala: 60,
-  'andhra pradesh': 60,
-  karnataka: 60,
-};
-const DEFAULT_SHIPPING_FEE = 130;
-const TEMP_FREE_SHIPPING = true;
-
-function computeShippingFee(state: string): number {
-  // TODO(testing): free shipping while testing live payments — delete this line to restore
-  // the state-tiered fees below (keep frontend lib/shippingFee.ts and backend order.service.ts in sync).
-  if (TEMP_FREE_SHIPPING) return 0;
-  return SHIPPING_FEE_BY_STATE[state.trim().toLowerCase()] ?? DEFAULT_SHIPPING_FEE;
-}
 
 function generateOrderNumber(): string {
   const time = Date.now().toString(36).toUpperCase();
@@ -44,6 +26,7 @@ async function executeOrderCreation(
   userId: string,
   input: CreateOrderInput,
   cart: CartDocument,
+  shippingFee: number,
   session?: mongoose.ClientSession,
 ): Promise<OrderDocument> {
   const sessionOpt = session ? { session } : {};
@@ -83,7 +66,6 @@ async function executeOrderCreation(
     }
 
     const itemsTotal = cart.items.reduce((sum, item) => sum + item.priceSnapshot * item.qty, 0);
-    const shippingFee = computeShippingFee(input.shippingAddress.state);
     const total = itemsTotal + shippingFee;
 
     const [order] = await Order.create(
@@ -145,13 +127,21 @@ export async function createOrderFromCart(
     throw ApiError.badRequest('Cart is empty');
   }
 
+  // Priced from the pincode (India Post lookup) before the transaction opens — a slow
+  // third-party call must never hold a Mongo transaction open. The client's preview of the fee
+  // is never trusted.
+  const { fee: shippingFee } = await quoteShipping(
+    input.shippingAddress.postalCode,
+    input.shippingAddress.state,
+  );
+
   let createdOrder: OrderDocument | null = null;
   let session: mongoose.ClientSession | null = null;
 
   try {
     session = await mongoose.startSession();
     await session.withTransaction(async () => {
-      createdOrder = await executeOrderCreation(userId, input, cart, session!);
+      createdOrder = await executeOrderCreation(userId, input, cart, shippingFee, session!);
     });
   } catch (err: unknown) {
     // If running against a standalone MongoDB instance (without replica set enabled),
@@ -167,7 +157,7 @@ export async function createOrderFromCart(
       logger.warn(
         'MongoDB transactions not supported by deployment; executing order creation with atomic updates and compensatory rollback',
       );
-      createdOrder = await executeOrderCreation(userId, input, cart);
+      createdOrder = await executeOrderCreation(userId, input, cart, shippingFee);
     } else {
       throw err;
     }

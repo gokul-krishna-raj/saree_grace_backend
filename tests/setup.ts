@@ -52,6 +52,24 @@ jest.mock('../src/utils/cloudinaryUpload', () => ({
   deleteCloudinaryImages: jest.fn().mockResolvedValue(undefined),
 }));
 
+// India Post's pincode API is never called from tests. A small fixed directory stands in for it;
+// anything not listed is "not found". Tests that exercise the real lookup use requireActual.
+jest.mock('../src/modules/shipping/pincodeLookup', () => {
+  const directory: Record<string, string[]> = {
+    '600001': ['Tamil Nadu'],
+    '605001': ['Pondicherry'],
+    '560001': ['Karnataka'],
+    '682001': ['Kerala'],
+    '520001': ['Andhra Pradesh'],
+    '673310': ['Kerala', 'Pondicherry'],
+    '500001': ['Telangana'],
+    '110001': ['Delhi'],
+  };
+  return {
+    lookupPincodeStates: jest.fn(async (pincode: string) => directory[pincode] ?? []),
+  };
+});
+
 beforeAll(async () => {
   replSet = await MongoMemoryReplSet.create({ replSet: { count: 1, storageEngine: 'wiredTiger' } });
   const uri = replSet.getUri();

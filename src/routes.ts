@@ -15,6 +15,7 @@ import adminReturnRoutes from './modules/return/admin-return.routes';
 import reviewRoutes from './modules/review/review.routes';
 import adminReviewRoutes from './modules/review/admin-review.routes';
 import adminDashboardRoutes from './modules/admin/dashboard.routes';
+import shippingRoutes from './modules/shipping/shipping.routes';
 
 const router = Router();
 
@@ -27,6 +28,7 @@ router.use('/admin/products', adminProductRoutes);
 router.use('/cart', cartRoutes);
 router.use('/wishlist', wishlistRoutes);
 router.use('/orders', orderRoutes);
+router.use('/shipping', shippingRoutes);
 router.use('/admin/orders', adminOrderRoutes);
 router.use('/payments', paymentRoutes);
 router.use('/returns', returnRoutes);
